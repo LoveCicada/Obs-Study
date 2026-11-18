@@ -1,0 +1,14 @@
+OBS 33.0.1 x64 调试环境自检 (2026-11-18)
+==========================================
+SHA256 PDB zip: F43A4360E894C952B97741D94DC3F1516A052AD7BF94EE2FEAA5FD2A24BDDC26
+SHA256 x64 zip: 0D9436451C2D772B33428E3FDAE9776F071895C335DE17283176306FB72651D3
+PDB count under install: 50
+obs64.exe + obs64.pdb co-located: yes (bin/64bit)
+obs.dll + obs.pdb co-located: yes (bin/64bit)
+DbgHelp SymLoadModuleEx: obs64.exe SymType=SymPdb
+DbgHelp SymLoadModuleEx: obs.dll SymType=SymPdb
+Process launch smoke: obs64.exe started and exited cleanly after test terminate
+
+Manual step in Visual Studio:
+- Open folder obs-studio-33.0.1, select launch profile "OBS 33.0.1 官方二进制 (GitHub PDB)", F5
+- Set breakpoint in frontend/obs-main.cpp main() and confirm hit

@@ -13,6 +13,25 @@
 | 许可证 | GPL-2.0-or-later（见 [COPYING](obs-studio-33.0.1/COPYING)） |
 | 官方文档 | <https://obsproject.com/docs>（源码内 Sphinx 文档位于 [docs/sphinx/](obs-studio-33.0.1/docs/sphinx/)） |
 
+## 官方发行版下载（Windows x64 · 33.0.1）
+
+GitHub [Releases](https://github.com/obsproject/obs-studio/releases) / [33.0.1 发行页](https://github.com/obsproject/obs-studio/releases/tag/33.0.1) 提供与 tag 对齐的 Windows 二进制及**公开 PDB**。官网安装包一般不附带 PDB，调试符号请在 GitHub Release Assets 下载。
+
+| 资产 | 用途 | 下载地址 |
+| --- | --- | --- |
+| Release 列表 | 查看各版本及 PDB 附件 | <https://github.com/obsproject/obs-studio/releases> |
+| Sources.tar.gz | Release 同源代码包（校验用） | <https://github.com/obsproject/obs-studio/releases/download/33.0.1/OBS-Studio-33.0.1-Sources.tar.gz> |
+| **Windows-x64.zip** | 官方便携二进制（推荐调试） | <https://github.com/obsproject/obs-studio/releases/download/33.0.1/OBS-Studio-33.0.1-Windows-x64.zip> |
+| **Windows-x64-PDBs.zip** | 公开 Windows 调试符号（PDB） | <https://github.com/obsproject/obs-studio/releases/download/33.0.1/OBS-Studio-33.0.1-Windows-x64-PDBs.zip> |
+| Windows-x64-Installer.exe | 安装版（与官网一致，可选） | <https://github.com/obsproject/obs-studio/releases/download/33.0.1/OBS-Studio-33.0.1-Windows-x64-Installer.exe> |
+
+**SHA256（与 Release 页 Checksums 一致）：**
+
+- `OBS-Studio-33.0.1-Windows-x64-PDBs.zip`：`f43a4360e894c952b97741d94dc3f1516a052ad7bf94ee2feaa5fd2a24bddc26`
+- `OBS-Studio-33.0.1-Windows-x64.zip`：`0d9436451c2d772b33428e3fdae9776f071895c335de17283176306fb72651d3`
+
+本工作区本地运行目录：[obs-runtime-33.0.1/](obs-runtime-33.0.1/)（脚本与说明见 [obs-runtime-33.0.1/README.md](obs-runtime-33.0.1/README.md)；`install/` 与 `*.zip` 已 gitignore，需自行下载或解压）。
+
 ## OBS Studio 简介
 
 OBS Studio 是一款免费开源的**视频直播推流与屏幕录制**软件，支持 Windows / macOS / Linux。
@@ -57,9 +76,36 @@ obs-studio-33.0.1/
 | [03-软件时序图.md](docs-analysis/03-软件时序图.md) | 启动初始化、开始推流、视频帧管线、音频混音、停止与关闭等 Mermaid 时序图 |
 | [04-类图设计.md](docs-analysis/04-类图设计.md) | libobs 核心对象结构体"类图"、插件接口（info 结构）、场景树、前端 Qt 类关系 |
 | [05-动态数据流可视化.md](docs-analysis/05-动态数据流可视化.md) | 运行时数据流动态图（HTML）的说明与入口 |
+| [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md) | GitHub 发行版 PDB 下载、本机部署与 Visual Studio 调试步骤 |
 
 > 动态可视化页面（含流动动画的数据流图）由分析工具生成，入口见
 > [docs-analysis/05-动态数据流可视化.md](docs-analysis/05-动态数据流可视化.md)。
+
+## 官方二进制 + PDB 调试（Visual Studio）
+
+在**不本地编译**的情况下，用发行版 `obs64.exe` + GitHub PDB 对照本仓库 `obs-studio-33.0.1/` 源码调试。
+
+1. **下载**：`Windows-x64.zip` 与 `Windows-x64-PDBs.zip`（见上表），或复用 [obs-runtime-33.0.1/](obs-runtime-33.0.1/) 中已下载的 zip。
+2. **部署**：将两份 zip 解压到同一根目录（本仓库默认 `obs-runtime-33.0.1/install/`），使 `bin/64bit/obs64.pdb` 与 `obs64.exe`、`obs.pdb` 与 `obs.dll` 位于同一目录。
+3. **打开工程**：VS 2022 → **文件 → 打开 → 文件夹** → `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
+4. **启动配置**：首次在本机运行 `obs-runtime-33.0.1/setup-vs-debug.ps1`，将 [launch.vs.json](obs-runtime-33.0.1/launch.vs.json) 安装到 `obs-studio-33.0.1/.vs/`（该路径受官方源码 `.gitignore` 排除，仓库内以 `obs-runtime` 副本为准）。
+5. **启动调试**：工具栏启动项选 **「OBS 33.0.1 官方二进制 (GitHub PDB)」**，按 F5。
+6. **符号路径**（若未走 launch 配置）：**工具 → 选项 → 调试 → 符号**，添加 `obs-runtime-33.0.1/install`；或环境变量 `_NT_SYMBOL_PATH=SRV*https://msdl.microsoft.com/download/symbols;<工作区>/obs-runtime-33.0.1/install`。
+7. **验证**：**调试 → 窗口 → 模块** 中 `obs64.exe`、`obs.dll` 应为「已加载符号」；或运行 `obs-runtime-33.0.1/verify-symbols.ps1`（`SymType=SymPdb` 表示 PDB 可用）。
+8. **断点**：建议在 `frontend/obs-main.cpp` 的 `main` 设断点做首次命中；若提示源路径为 CI 路径（如 `D:\a\obs-studio\...`），浏览映射到本仓库 `obs-studio-33.0.1/` 对应文件。
+9. **预期**：主程序与 libobs 符号较完整；多数插件 PDB 在官方 CI 中会被 strip，不宜指望所有 DLL 都能逐行单步。需全量符号时可本地 `cmake --preset windows-x64` 自编译 Debug。
+
+解压合并示例（路径请按本机工作区根目录调整）：
+
+```powershell
+$root = "E:\code\AI\Obs-Study\obs-runtime-33.0.1"
+$install = Join-Path $root "install"
+Expand-Archive (Join-Path $root "OBS-Studio-33.0.1-Windows-x64.zip") -DestinationPath $install -Force
+Expand-Archive (Join-Path $root "OBS-Studio-33.0.1-Windows-x64-PDBs.zip") -DestinationPath $install -Force
+& (Join-Path $root "verify-symbols.ps1")
+```
+
+源码路径映射、符号范围与 CI 发布说明见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)。
 
 ## 快速构建（参考官方 CI）
 
@@ -74,4 +120,5 @@ cmake --build --preset windows-x64
 ## 说明
 
 - 工作区根目录的 `README.md` 与 `docs-analysis/` 为本地新增的中文分析材料，非官方源码内容；源码目录 `obs-studio-33.0.1/` 仅保留官方源码；
+- 根目录 README 汇总 **33.0.1 发行版下载链接** 与 **VS + PDB 调试入口**；更细的步骤与踩坑见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)；
 - 官方原始说明见 [README.rst](obs-studio-33.0.1/README.rst)。
