@@ -1,0 +1,151 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "OBS Studio 33.0.1 运行时数据流",
+    "locale": "zh-CN",
+    "output": "docs-analysis/diagrams/obs-dataflow/obs-runtime-dataflow.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/obsproject/obs-studio",
+      "provider": "github",
+      "link_mode": "local-only",
+      "revision": "19376c8bdfe6b82de7cc7f489bbd3f31afb5966d"
+    }
+  },
+  "stages": [
+    { "label": "采集" },
+    { "label": "合成" },
+    { "label": "缓冲分发" },
+    { "label": "编码" },
+    { "label": "输出" }
+  ],
+  "nodes": [
+    {
+      "id": "vcap", "type": "external", "label": "视频采集源", "sublabel": "游戏/窗口/摄像头/媒体", "tag": "插件线程",
+      "stage": 0, "row": 0,
+      "sources": [{ "path": "libobs/obs-source.c", "line": 3632, "end_line": 3632, "label": "obs_source_output_video" }]
+    },
+    {
+      "id": "acap", "type": "external", "label": "音频采集源", "sublabel": "WASAPI/麦克风/媒体", "tag": "插件线程",
+      "stage": 0, "row": 2,
+      "sources": [{ "path": "libobs/obs-source.c", "line": 4066, "end_line": 4066, "label": "obs_source_output_audio" }]
+    },
+    {
+      "id": "compose", "type": "backend", "label": "视频合成", "sublabel": "源树渲染+滤镜链", "tag": "图形线程",
+      "stage": 1, "row": 0,
+      "sources": [
+        { "path": "libobs/obs-video.c", "line": 539, "end_line": 539, "label": "render_video" },
+        { "path": "libobs/obs-video.c", "line": 1094, "end_line": 1156, "label": "图形线程主循环" }
+      ]
+    },
+    {
+      "id": "convert", "type": "backend", "label": "转换与回读", "sublabel": "RGBA→NV12 乒乓纹理", "tag": "图形线程",
+      "stage": 1, "row": 1,
+      "sources": [
+        { "path": "libobs/obs-video.c", "line": 583, "end_line": 583, "label": "download_frame" },
+        { "path": "libobs/obs-video.c", "line": 868, "end_line": 914, "label": "output_frame" }
+      ]
+    },
+    {
+      "id": "amix", "type": "backend", "label": "树形混音", "sublabel": "audio_callback 快照混音", "tag": "音频线程",
+      "stage": 1, "row": 2,
+      "sources": [{ "path": "libobs/obs-audio.c", "line": 548, "end_line": 548, "label": "audio_callback" }]
+    },
+    {
+      "id": "vqueue", "type": "messagebus", "label": "视频帧缓存", "sublabel": "video-io 队列≤16帧", "tag": "信号量",
+      "stage": 2, "row": 0,
+      "sources": [
+        { "path": "libobs/media-io/video-io.c", "line": 35, "end_line": 35, "label": "MAX_CACHE_SIZE 16" },
+        { "path": "libobs/media-io/video-io.c", "line": 190, "end_line": 190, "label": "video_thread" }
+      ]
+    },
+    {
+      "id": "adispatch", "type": "messagebus", "label": "音频分发", "sublabel": "audio-io 1024采样/块", "tag": "≈21ms",
+      "stage": 2, "row": 2,
+      "sources": [{ "path": "libobs/media-io/audio-io.c", "line": 205, "end_line": 205, "label": "audio_thread" }]
+    },
+    {
+      "id": "venc", "type": "backend", "label": "视频编码", "sublabel": "x264 / QSV / FFmpeg", "tag": "CPU",
+      "stage": 3, "row": 0,
+      "sources": [{ "path": "libobs/obs-encoder.c", "line": 1456, "end_line": 1456, "label": "do_encode" }]
+    },
+    {
+      "id": "gpu", "type": "backend", "label": "GPU 直通编码", "sublabel": "NVENC 纹理零拷贝", "tag": "GPU线程",
+      "stage": 3, "row": 1,
+      "sources": [{ "path": "libobs/obs-video-gpu-encode.c", "line": 24, "end_line": 24, "label": "gpu_encode_thread" }]
+    },
+    {
+      "id": "aenc", "type": "backend", "label": "音频编码", "sublabel": "AAC / Opus / FLAC", "tag": "音频线程",
+      "stage": 3, "row": 2,
+      "sources": [{ "path": "libobs/obs-encoder.c", "line": 1456, "end_line": 1456, "label": "do_encode" }]
+    },
+    {
+      "id": "stream", "type": "cloud", "label": "直播推流", "sublabel": "RTMP / SRT / WHIP", "tag": "发送线程",
+      "stage": 4, "row": 0,
+      "sources": [
+        { "path": "plugins/obs-outputs/rtmp-stream.c", "line": 632, "end_line": 632, "label": "send_thread" },
+        { "path": "plugins/obs-outputs/rtmp-stream.c", "line": 1540, "end_line": 1540, "label": "rtmp_stream_start" }
+      ]
+    },
+    {
+      "id": "record", "type": "database", "label": "本地录制", "sublabel": "MP4 / MKV / FLV 文件", "tag": "交织落盘",
+      "stage": 4, "row": 1,
+      "sources": [{ "path": "libobs/obs-output.c", "line": 2222, "end_line": 2222, "label": "interleave_packets" }]
+    }
+  ],
+  "flows": [
+    { "id": "f-vcap-compose", "from": "vcap", "to": "compose", "label": "异步视频帧", "classification": "obs_source_frame", "variant": "emphasis" },
+    { "id": "f-acap-amix", "from": "acap", "to": "amix", "label": "PCM+时间戳", "classification": "重采样后入环形缓冲", "variant": "default" },
+    { "id": "f-compose-convert", "from": "compose", "to": "convert", "label": "RGBA 纹理", "classification": "最终合成画面", "variant": "emphasis" },
+    { "id": "f-convert-vqueue", "from": "convert", "to": "vqueue", "label": "NV12 帧", "classification": "回读帧+时间戳", "variant": "emphasis" },
+    { "id": "f-convert-gpu", "from": "convert", "to": "gpu", "label": "GPU 纹理直通", "classification": "零拷贝旁路", "variant": "default" },
+    { "id": "f-amix-adispatch", "from": "amix", "to": "adispatch", "label": "多轨混音", "classification": "最多6条混音轨", "variant": "default" },
+    { "id": "f-vqueue-venc", "from": "vqueue", "to": "venc", "label": "原始帧", "classification": "队列满复制上帧", "variant": "emphasis" },
+    { "id": "f-adispatch-aenc", "from": "adispatch", "to": "aenc", "label": "PCM 块", "classification": "1024采样", "variant": "default" },
+    { "id": "f-venc-stream", "from": "venc", "to": "stream", "label": "视频编码包", "classification": "交织后发送", "variant": "emphasis" },
+    { "id": "f-venc-record", "from": "venc", "to": "record", "label": "视频编码包", "classification": "交织后落盘", "variant": "default" },
+    { "id": "f-aenc-stream", "from": "aenc", "to": "stream", "label": "音频编码包", "classification": "与视频交织", "variant": "default" },
+    { "id": "f-aenc-record", "from": "aenc", "to": "record", "label": "音频编码包", "classification": "与视频交织", "variant": "default" },
+    { "id": "f-gpu-stream", "from": "gpu", "to": "stream", "label": "GPU 编码包", "classification": "不经CPU回读", "variant": "default" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "视频主路径",
+      "items": [
+        "图形线程每帧: tick 源 → 渲染源树 → RGBA→NV12 转换 → 回读上一帧乒乓纹理",
+        "同一循环内 render_displays 把主纹理绘制到预览窗口交换链",
+        "帧缓存上限 16 帧, 编码器跟不上时复制上一帧, 表现为跳帧",
+        "时间戳贯穿全管线, 输出端按 DTS 交织保证音画同步"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "音频路径",
+      "items": [
+        "采集侧随时推送: 滤镜 → 重采样 → 每源环形缓冲 audio_input_buf",
+        "音频线程每 1024 采样(48kHz 约 21.3ms)拉取快照, 自叶向根树形混音",
+        "音量/静音/按压通话按时间戳在样本级生效, 另送监听设备"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "GPU 零拷贝旁路",
+      "items": [
+        "NVENC 等 GPU 编码器直接消费图形纹理, 不经过 CPU 回读",
+        "独立 gpu_encode_thread 通过纹理队列与信号量驱动",
+        "一个编码器可同时服务推流与录制多个输出, 编码只做一次"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "输出与可靠性",
+      "items": [
+        "obs_output 交织队列把音视频包按单调时间戳排序后回调插件",
+        "RTMP 输出有独立发送线程与断线重连线程",
+        "录制文件由 ffmpeg-mux 子进程写入, 崩溃时可恢复"
+      ]
+    }
+  ]
+}

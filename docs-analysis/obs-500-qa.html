@@ -1,0 +1,1173 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OBS Studio 33.0.1 · 500 问源码解析</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234cc2ff'/%3E%3Ctext x='16' y='22' font-size='13' text-anchor='middle' fill='white' font-family='Arial'%3EOBS%3C/text%3E%3C/svg%3E">
+<style>
+:root{
+  --bg:#0d1117; --panel:#151b24; --panel2:#1b2330; --panel3:#222c3b;
+  --border:#2b3646; --text:#e8eef6; --muted:#98a7bb; --faint:#6b7b90;
+  --accent:#4cc2ff; --accent2:#ffb454; --green:#57d9a3; --purple:#b28cff;
+  --mark:#ffd166; --shadow:0 8px 30px rgba(0,0,0,.35);
+  --mono:ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",Menlo,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei","PingFang SC","Hiragino Sans GB",sans-serif;
+}
+html[data-theme="light"]{
+  --bg:#f4f7fb; --panel:#ffffff; --panel2:#f7f9fc; --panel3:#eef3f9;
+  --border:#d9e2ee; --text:#1d2939; --muted:#5b6b80; --faint:#8b9aad;
+  --accent:#0b7fc4; --accent2:#c56a00; --green:#0f9d63; --purple:#7b52cc;
+  --mark:#fff0a8; --shadow:0 8px 28px rgba(30,50,80,.10);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--text);font-family:var(--sans);font-size:15px;line-height:1.7}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+
+/* ---------- top bar ---------- */
+.topbar{position:sticky;top:0;z-index:50;display:flex;align-items:center;gap:14px;
+  padding:10px 18px;background:color-mix(in srgb,var(--panel) 92%,transparent);
+  backdrop-filter:blur(12px);border-bottom:1px solid var(--border);box-shadow:0 2px 14px rgba(0,0,0,.12)}
+.brand{display:flex;align-items:center;gap:10px;min-width:max-content}
+.brand .logo{width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--purple));
+  display:grid;place-items:center;font-weight:800;color:#fff;font-size:13px;letter-spacing:-.5px}
+.brand b{font-size:16px;letter-spacing:.2px}
+.brand span{color:var(--muted);font-size:12px;display:block;line-height:1.2}
+.search{position:relative;flex:1;max-width:520px;margin-left:auto}
+.search input{width:100%;padding:9px 66px 9px 34px;border-radius:9px;border:1px solid var(--border);
+  background:var(--panel2);color:var(--text);font-size:14px;outline:none;transition:.2s}
+.search input:focus{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 16%,transparent)}
+.search .ico{position:absolute;left:11px;top:50%;transform:translateY(-50%);color:var(--faint)}
+.search kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);font-family:var(--mono);font-size:11px;
+  color:var(--faint);border:1px solid var(--border);border-radius:4px;padding:1px 5px;background:var(--panel3)}
+.tb-actions{display:flex;gap:8px;align-items:center}
+.btn{border:1px solid var(--border);background:var(--panel2);color:var(--text);padding:7px 11px;border-radius:8px;
+  cursor:pointer;font-size:13px;white-space:nowrap;transition:.15s}
+.btn:hover{border-color:var(--accent);color:var(--accent)}
+.btn.primary{background:color-mix(in srgb,var(--accent) 16%,var(--panel2));border-color:color-mix(in srgb,var(--accent) 45%,var(--border))}
+.progress{position:absolute;left:0;bottom:-1px;height:2px;background:linear-gradient(90deg,var(--accent),var(--green));width:0;transition:width .3s}
+
+/* ---------- layout ---------- */
+.layout{display:grid;grid-template-columns:262px minmax(0,1fr);gap:22px;max-width:1560px;margin:0 auto;padding:22px}
+.sidebar{position:sticky;top:72px;align-self:start;max-height:calc(100vh - 92px);overflow:auto;
+  background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px;box-shadow:var(--shadow)}
+.sidebar h3{margin:16px 6px 6px;font-size:11px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint)}
+.sidebar h3:first-child{margin-top:2px}
+.chip{display:flex;align-items:center;gap:8px;width:100%;text-align:left;border:0;background:transparent;color:var(--muted);
+  padding:7px 9px;border-radius:8px;cursor:pointer;font-size:13px;transition:.15s}
+.chip:hover{background:var(--panel2);color:var(--text)}
+.chip.active{background:color-mix(in srgb,var(--accent) 14%,var(--panel2));color:var(--accent);font-weight:600}
+.chip .dot{width:8px;height:8px;border-radius:50%;background:var(--c,var(--accent));flex:none;box-shadow:0 0 0 3px color-mix(in srgb,var(--c,var(--accent)) 18%,transparent)}
+.chip .n{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--faint)}
+.content{min-width:0}
+
+/* ---------- hero ---------- */
+.hero{position:relative;overflow:hidden;border:1px solid var(--border);border-radius:16px;padding:28px 30px;margin-bottom:20px;
+  background:radial-gradient(1000px 260px at 12% -20%,color-mix(in srgb,var(--accent) 22%,transparent),transparent 62%),
+             radial-gradient(700px 260px at 92% 0%,color-mix(in srgb,var(--purple) 18%,transparent),transparent 60%),var(--panel);
+  box-shadow:var(--shadow)}
+.hero h1{margin:0 0 8px;font-size:28px;letter-spacing:-.4px}
+.hero p{margin:0;color:var(--muted);max-width:900px}
+.hero .meta{display:flex;flex-wrap:wrap;gap:10px;margin-top:18px}
+.stat{background:color-mix(in srgb,var(--panel2) 85%,transparent);border:1px solid var(--border);border-radius:10px;padding:9px 14px;min-width:120px}
+.stat b{display:block;font-size:20px;line-height:1.2;color:var(--accent)}
+.stat span{font-size:12px;color:var(--muted)}
+.jump{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}
+.jump a{font-size:12px;padding:4px 9px;border:1px solid var(--border);border-radius:20px;color:var(--muted);background:var(--panel2)}
+.jump a:hover{color:var(--accent);border-color:var(--accent);text-decoration:none}
+
+/* ---------- panels ---------- */
+.panel{border:1px solid var(--border);border-radius:14px;background:var(--panel);padding:20px;margin-bottom:20px;box-shadow:var(--shadow)}
+.panel-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.panel-head h2{margin:0;font-size:18px}
+.panel-head .sub{color:var(--muted);font-size:12px}
+.panel-head .spacer{flex:1}
+.tag{font-size:11px;padding:3px 8px;border-radius:20px;border:1px solid var(--border);color:var(--muted);background:var(--panel2)}
+
+/* ---------- animated pipeline ---------- */
+.svgwrap{border:1px solid var(--border);border-radius:12px;background:linear-gradient(180deg,var(--panel2),var(--panel));overflow:hidden}
+#pipe{display:block;width:100%;height:auto}
+#pipe .nt{fill:var(--text);font-size:15px;font-weight:650}
+#pipe .ns{fill:var(--muted);font-size:11px}
+#pipe .rowlbl{fill:var(--faint);font-size:11px;letter-spacing:1px}
+#pipe .node rect{fill:var(--panel3);stroke:var(--border);stroke-width:1.2}
+#pipe .node.v rect{stroke:color-mix(in srgb,var(--accent) 55%,var(--border))}
+#pipe .node.a rect{stroke:color-mix(in srgb,var(--accent2) 55%,var(--border))}
+#pipe .wire{fill:none;stroke:var(--border);stroke-width:2;marker-end:url(#arrow)}
+#pipe .wire.v{stroke:color-mix(in srgb,var(--accent) 45%,var(--border))}
+#pipe .wire.a{stroke:color-mix(in srgb,var(--accent2) 45%,var(--border))}
+#pipe .wire.gpu{stroke:var(--green);stroke-dasharray:6 5;marker-end:url(#arrowG)}
+#pipe .glabel{fill:var(--green);font-size:11px}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}
+.note{font-size:12px;color:var(--muted);border-left:3px solid var(--accent);padding:6px 10px;background:var(--panel2);border-radius:0 8px 8px 0;margin-top:12px}
+
+/* ---------- mermaid ---------- */
+.tabs{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.tab{border:1px solid var(--border);background:var(--panel2);color:var(--muted);padding:6px 10px;border-radius:8px;cursor:pointer;font-size:12px}
+.tab:hover{color:var(--accent)}
+.tab.active{color:var(--accent);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--panel2))}
+#diagram{border:1px solid var(--border);border-radius:12px;background:var(--panel2);padding:14px;min-height:200px;overflow:auto}
+#diagram svg{max-width:100%;height:auto}
+#diagram .raw{white-space:pre-wrap;font-family:var(--mono);font-size:12px;color:var(--muted);margin:0}
+.mermaid-note{margin:0 0 10px;font-size:12px;color:var(--accent2)}
+
+/* ---------- qa ---------- */
+.qa-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.qa-toolbar .result{font-size:12px;color:var(--muted)}
+.qa-toolbar .result b{color:var(--accent);font-family:var(--mono)}
+.mod{border:1px solid var(--border);border-radius:14px;background:var(--panel);margin-bottom:18px;overflow:hidden;box-shadow:var(--shadow);scroll-margin-top:80px}
+.mod-head{display:flex;align-items:center;gap:10px;padding:13px 16px;background:var(--panel2);border-bottom:1px solid var(--border);cursor:default}
+.mod-head .dot{width:10px;height:10px;border-radius:50%;background:var(--c);box-shadow:0 0 0 4px color-mix(in srgb,var(--c) 16%,transparent)}
+.mod-head h2{margin:0;font-size:16px}
+.mod-head .desc{font-size:12px;color:var(--muted)}
+.mod-head .spacer{flex:1}
+.mod-head .cnt{font-family:var(--mono);font-size:12px;color:var(--faint);border:1px solid var(--border);border-radius:20px;padding:2px 9px}
+.cards{padding:6px 10px 10px}
+.qa{border-bottom:1px solid color-mix(in srgb,var(--border) 65%,transparent)}
+.qa:last-child{border-bottom:0}
+.qa summary{list-style:none;display:flex;gap:12px;align-items:flex-start;padding:11px 8px;cursor:pointer;border-radius:8px}
+.qa summary::-webkit-details-marker{display:none}
+.qa summary:hover{background:var(--panel2)}
+.qa .num{font-family:var(--mono);font-size:11px;color:var(--faint);padding-top:3px;min-width:34px}
+.qa .qq{flex:1;font-size:14px}
+.qa[open] .qq{color:var(--accent);font-weight:600}
+.qa .chev{color:var(--faint);font-size:11px;transition:transform .2s;margin-top:4px}
+.qa[open] .chev{transform:rotate(90deg)}
+.ans{margin:0 8px 12px 54px;padding:12px 14px;background:var(--panel2);border-left:3px solid var(--accent);border-radius:0 10px 10px 0}
+.ans p{margin:0 0 8px;color:var(--text)}
+.ans .src{font-family:var(--mono);font-size:11px;color:var(--muted);word-break:break-all}
+.ans .src::before{content:"⌖ ";color:var(--accent)}
+mark{background:var(--mark);color:#1d2939;border-radius:3px;padding:0 2px}
+.empty{padding:30px;text-align:center;color:var(--muted)}
+footer{color:var(--faint);font-size:12px;text-align:center;padding:16px 0 30px}
+#toTop{position:fixed;right:20px;bottom:20px;width:40px;height:40px;border-radius:50%;border:1px solid var(--border);
+  background:var(--panel2);color:var(--accent);font-size:18px;cursor:pointer;box-shadow:var(--shadow);display:none}
+#toTop.show{display:block}
+
+@media(max-width:980px){
+  .layout{grid-template-columns:1fr;padding:14px}
+  .sidebar{position:static;max-height:none;display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .sidebar h3{width:100%;margin:8px 4px 2px}
+  .chip{width:auto}
+  .chip .n{margin-left:4px}
+  .hero h1{font-size:22px}
+  .tb-actions .btn span{display:none}
+}
+@media print{
+  .topbar,.sidebar,#toTop,#viz,.jump,.qa-toolbar{display:none!important}
+  .layout{display:block;padding:0}
+  .panel,.mod{box-shadow:none;break-inside:avoid}
+  body{background:#fff;color:#000}
+}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <div class="logo">OBS</div>
+    <div><b>500 问源码解析</b><span>obs-studio 33.0.1 · libobs 核心引擎深度导读</span></div>
+  </div>
+  <div class="search">
+    <span class="ico">⌕</span>
+    <input id="search" type="search" placeholder="搜索 500 个问题、答案或源码位置…" autocomplete="off">
+    <kbd>/</kbd>
+  </div>
+  <div class="tb-actions">
+    <button class="btn" id="expandAll" title="展开全部">展开全部</button>
+    <button class="btn" id="collapseAll" title="收起全部">收起全部</button>
+    <button class="btn" id="theme" title="切换主题">◐ <span>主题</span></button>
+  </div>
+  <div class="progress" id="progress"></div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar" id="sidebar"></aside>
+  <main class="content">
+    <section class="hero">
+      <h1>OBS Studio 33.0.1 · 500 问源码解析</h1>
+      <p>基于官方源码与本地源码分析文档整理，按源码模块组织 <strong>500</strong> 组问答，重点剖析 <code>libobs</code> 核心引擎：对象模型、图形/音频线程、插件框架、图形抽象层与输出管线。点击问题展开答案，答案中标注了对应源码文件或分析文档章节。</p>
+      <div class="meta" id="stats"></div>
+      <div class="jump">
+        <a href="#viz">可视化：运行时数据流 + 时序图</a>
+        <a href="#m-core">libobs 核心对象</a>
+        <a href="#m-video">视频管线</a>
+        <a href="#m-audio">音频管线</a>
+        <a href="#m-encoder">编码器</a>
+        <a href="#m-output">输出</a>
+        <a href="#m-module">插件框架</a>
+        <a href="#m-frontend">前端</a>
+      </div>
+    </section>
+
+    <section class="panel" id="viz">
+      <div class="panel-head">
+        <h2>运行时数据流（动画）</h2>
+        <span class="sub">采集 → 合成 → 缓冲分发 → 编码 → 输出；音频与 GPU 零拷贝旁路同图呈现</span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="animToggle">暂停动画</button>
+      </div>
+      <div class="svgwrap">
+        <svg id="pipe" viewBox="0 0 1040 300" role="img" aria-label="OBS 运行时数据流动画">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/></marker>
+            <marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--accent2)"/></marker>
+            <marker id="arrowG" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="var(--green)"/></marker>
+          </defs>
+          <text x="20" y="22" class="rowlbl">视频主路径 · 图形线程每帧推进（obs_graphics_thread_loop）</text>
+          <g class="node v" transform="translate(20,36)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">采集</text><text x="85" y="48" text-anchor="middle" class="ns">同步源 / 异步帧入队</text></g>
+          <g class="node v" transform="translate(230,36)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">合成 · 图形线程</text><text x="85" y="48" text-anchor="middle" class="ns">tick → render → 滤镜链</text></g>
+          <g class="node v" transform="translate(440,36)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">转换与回读</text><text x="85" y="48" text-anchor="middle" class="ns">乒乓纹理 / stagesurf</text></g>
+          <g class="node v" transform="translate(650,36)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">帧缓存 ≤16 帧</text><text x="85" y="48" text-anchor="middle" class="ns">video_io 线程分发</text></g>
+          <g class="node v" transform="translate(860,36)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">编码 → 输出</text><text x="85" y="48" text-anchor="middle" class="ns">交织队列 / RTMP / MP4</text></g>
+          <path class="wire v" d="M190,69 H230"/><path class="wire v" d="M400,69 H440"/><path class="wire v" d="M610,69 H650"/><path class="wire v" d="M820,69 H860"/>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M190,69 H230" dur="1.6s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M190,69 H230" dur="1.6s" begin="0.8s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M400,69 H440" dur="1.6s" begin="0.3s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M400,69 H440" dur="1.6s" begin="1.1s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M610,69 H650" dur="1.6s" begin="0.6s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M610,69 H650" dur="1.6s" begin="1.4s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M820,69 H860" dur="1.6s" begin="0.9s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent)"><animateMotion path="M820,69 H860" dur="1.6s" begin="1.7s" repeatCount="indefinite"/></circle>
+          <path class="wire gpu" d="M610,36 C700,-2 780,-2 860,36"/>
+          <text x="735" y="25" text-anchor="middle" class="glabel">GPU 纹理零拷贝（NVENC 旁路）</text>
+          <circle r="4" fill="var(--green)"><animateMotion path="M610,36 C700,-2 780,-2 860,36" dur="2.8s" repeatCount="indefinite"/></circle>
+          <circle r="4" fill="var(--green)"><animateMotion path="M610,36 C700,-2 780,-2 860,36" dur="2.8s" begin="1.4s" repeatCount="indefinite"/></circle>
+
+          <text x="20" y="158" class="rowlbl">音频路径 · 推送缓冲 + 拉取式树形混音（audio_callback，每 1024 采样）</text>
+          <g class="node a" transform="translate(20,172)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">音频采集</text><text x="85" y="48" text-anchor="middle" class="ns">wasapi / alsa 等</text></g>
+          <g class="node a" transform="translate(230,172)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">滤镜 / 重采样</text><text x="85" y="48" text-anchor="middle" class="ns">audio_input_buf 环形缓冲</text></g>
+          <g class="node a" transform="translate(440,172)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">树形混音</text><text x="85" y="48" text-anchor="middle" class="ns">叶子取样本 → 父节点混合</text></g>
+          <g class="node a" transform="translate(650,172)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">最多 6 条混音轨</text><text x="85" y="48" text-anchor="middle" class="ns">mixes[] + 监听设备</text></g>
+          <g class="node a" transform="translate(860,172)"><rect width="170" height="66" rx="10"/><text x="85" y="28" text-anchor="middle" class="nt">音频编码 / 输出</text><text x="85" y="48" text-anchor="middle" class="ns">AAC → 交织队列</text></g>
+          <path class="wire a" d="M190,205 H230"/><path class="wire a" d="M400,205 H440"/><path class="wire a" d="M610,205 H650"/><path class="wire a" d="M820,205 H860"/>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M190,205 H230" dur="2s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M190,205 H230" dur="2s" begin="1s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M400,205 H440" dur="2s" begin="0.4s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M400,205 H440" dur="2s" begin="1.4s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M610,205 H650" dur="2s" begin="0.8s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M610,205 H650" dur="2s" begin="1.8s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M820,205 H860" dur="2s" begin="1.2s" repeatCount="indefinite"/></circle>
+          <circle r="4.5" fill="var(--accent2)"><animateMotion path="M820,205 H860" dur="2s" begin="2.2s" repeatCount="indefinite"/></circle>
+          <text x="20" y="282" class="rowlbl">证据：obs-source.c:3632/4066 · obs-video.c:1094 · media-io/video-io.c:35/190 · obs-audio.c:548 · obs-encoder.c · obs-output.c:2222</text>
+        </svg>
+      </div>
+      <div class="legend">
+        <span><i style="background:var(--accent)"></i>视频主路径</span>
+        <span><i style="background:var(--accent2)"></i>音频路径</span>
+        <span><i style="background:var(--green)"></i>GPU 零拷贝旁路</span>
+        <span>队列满时复制上一帧 → 跳帧；音频按时间戳对齐样本</span>
+      </div>
+      <div class="note">该动画与 <code>docs-analysis/diagrams/obs-dataflow/obs-runtime-dataflow.html</code> 为同源设计；时间/容量参数取自源码常量，非实测值。</div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-head">
+        <h2>关键流程时序图</h2>
+        <span class="sub">基于源码调用链整理，与《03-软件时序图.md》对照阅读</span>
+      </div>
+      <div class="tabs" id="dgTabs"></div>
+      <div id="diagram"></div>
+    </section>
+
+    <section id="qa">
+      <div class="qa-toolbar">
+        <span class="result" id="result"></span>
+        <span class="spacer" style="flex:1"></span>
+        <span class="tag">点击问题展开/收起答案</span>
+        <span class="tag">已展开 <b id="opened">0</b> / 500</span>
+      </div>
+      <div id="qa-list"></div>
+    </section>
+
+    <footer>内容依据 obs-studio 33.0.1 官方源码与 <code>docs-analysis/</code> 分析文档整理 · 单文件离线可用（时序图渲染需联网加载 Mermaid）</footer>
+  </main>
+</div>
+<button id="toTop" title="回到顶部">↑</button>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>window.QA_1 = {
+  "arch": [
+    {"q":"OBS Studio 的整体架构分为哪三层？","a":"OBS 采用 Qt 前端 frontend、纯 C 核心 libobs、动态插件 plugins 三层架构。libobs 不依赖界面，只负责音视频管线与插件框架；前端经 obs.h 与 obs-frontend-api 调用核心，插件以动态库形式在运行时向核心注册对象。","s":"docs-analysis/01-架构设计.md §1"},
+    {"q":"libobs 为什么坚持用纯 C 实现？","a":"核心保持纯 C 是为了 ABI 稳定、跨平台，并让任意语言的前端都能复用。逻辑集中在 obs.c、obs-source.c 等文件，前端 OBSApp 与 OBSBasic 只通过公开 C API 驱动它，核心绝不反向依赖界面。","s":"docs-analysis/01-架构设计.md §1.1"},
+    {"q":"前端与 libobs 内核之间如何通信？","a":"Qt 侧的 OBSApp 和 OBSBasic 调用 libobs/obs.h 中的 C 函数，例如 obs_startup、obs_reset_video、obs_set_output_source；核心则通过 signal_handler 信号回调把状态变化通知前端，避免前端轮询内部状态。","s":"libobs/obs.h / docs-analysis/01-架构设计.md §7"},
+    {"q":"obs-frontend-api 在架构中起什么作用？","a":"它是面向前端插件的扩展层，由 frontend/OBSStudioAPI.cpp 实现 Event 事件分发，向 frontend-tools 等插件暴露 obs_frontend_event 通知与 UI 扩展点，使插件无需链接 libobs 私有结构即可与界面协作。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"插件化内核是怎样加载第三方模块的？","a":"加载由 libobs/obs-module.c 完成：obs_add_module_path 登记目录，obs_load_all_modules 用 os_dlopen 打开动态库并解析约定符号，插件导出 obs_module_load 后调用 obs_register_source 等把对象填入注册表。","s":"libobs/obs-module.c / docs-analysis/01-架构设计.md §6"},
+    {"q":"为什么说 OBS 中「一切皆 Source」？","a":"场景、转场、滤镜都是 obs_source 的特化。libobs/obs-source.h:33 的 enum obs_source_type 定义 INPUT、FILTER、TRANSITION、SCENE 四类，使渲染与混音可以统一按一棵递归树处理，大幅简化管线调度。","s":"libobs/obs-source.h:33"},
+    {"q":"libobs 用哪些注册表管理四类插件对象？","a":"obs-internal.h:549 的 obs_core 用 source_types、output_types、encoder_types、service_types 四个注册表容纳插件信息，前端按 id 调用 obs_source_create 或 obs_output_create 工厂实例化，核心只认接口不认实现。","s":"libobs/obs-internal.h:549"},
+    {"q":"四类 *_info 结构如何充当 C 语言虚表？","a":"obs_source_info 含 id、type、output_flags 与 create、destroy、video_render 等回调；obs_output_info、obs_encoder_info、obs_service_info 同理。核心面向这些纯 C 接口编程，插件提供实现，从而彻底解耦。","s":"libobs/obs-source.h:222"},
+    {"q":"OBS 的图形后端为什么可以替换？","a":"libobs 只依赖 graphics/graphics.h 的 gs_* 抽象，libobs-d3d11、libobs-opengl、libobs-metal 实现同一套函数指针表；obs_video_info::graphics_module 决定运行时加载哪一个，上层源码完全不用改动。","s":"docs-analysis/02-模块划分.md §3"},
+    {"q":"graphics 抽象层封装了哪些 GPU 资源？","a":"该层把 effect、texture、stagesurf、swapchain 等统一为 gs_* 句柄，effect-parser.c 负责解析类 HLSL 的 effect 文件。源只调用这套接口，切换 D3D11 或 OpenGL 后端时渲染代码保持不动。","s":"libobs/graphics/graphics.h"},
+    {"q":"信号回调驱动机制在 OBS 中如何体现？","a":"callback/signal.c 提供 signal_handler_connect 订阅与 signal_handler_signal 发布。obs_source 的 activate、show、mute 等状态变化通过 context.signals 广播，前端按需订阅而非定时轮询，降低耦合与开销。","s":"libobs/callback/signal.c"},
+    {"q":"OBS 源码的模块依赖方向是怎样的？","a":"依赖严格单向：frontend 与 plugins 依赖 libobs，libobs 再依赖图形后端、media-io 以及 deps 中的 FFmpeg、jansson 等，从不反向依赖前端；扩展能力由 obs-frontend-api 与信号机制提供。","s":"docs-analysis/02-模块划分.md §1"},
+    {"q":"OBS 源码顶层有哪些主要模块目录？","a":"libobs 是核心引擎，其 graphics 管图形抽象、media-io 管音视频 IO、callback 管信号、util 是基础设施；frontend 是 Qt 界面，plugins 是功能插件，shared 存放前后端共享组件，deps 放第三方依赖。","s":"docs-analysis/02-模块划分.md §2"},
+    {"q":"初次阅读 OBS 源码推荐什么路线？","a":"建议先读 libobs/obs.h 与 obs-source.h 等公开接口，再读 obs.c 初始化、obs-video.c 图形循环、obs-audio.c 混音主干，然后挑 image-source 这种最简单插件，最后看前端 BasicOutputHandler 的输出装配。","s":"docs-analysis/02-模块划分.md §8"},
+    {"q":"libobs 运行时有哪几大常驻线程？","a":"图形线程 obs_graphics_thread 每帧 tick 源并渲染，video_thread 把帧分发给编码器，audio_thread 每 1024 采样调用 audio_callback 混音；另有热键线程，以及按需创建的采集线程与 GPU 编码线程。","s":"docs-analysis/01-架构设计.md §3"},
+    {"q":"为什么说 OBS 管线到处是生产者消费者模型？","a":"异步源帧队列 async_frames、每源 audio_input_buf 环形缓冲、video_output 的 16 帧缓存、输出 interleaved_packets 交织队列，都是生产者消费者结构，线程间只传递数据不直接传递函数调用。","s":"docs-analysis/01-架构设计.md §8"},
+    {"q":"典型的源渲染树是怎样组织的？","a":"输出通道 0 通常挂转场，转场通过 transition_sources 引用新旧场景，场景由 obs_scene_item 容纳具体源，滤镜以 filters 链附加。每层都是 obs_source，因此 tick 与 render 可以统一递归遍历。","s":"docs-analysis/01-架构设计.md §2.1"},
+    {"q":"obs_core 全局核心如何按职责拆分？","a":"全局唯一核心 struct obs_core *obs 分为 video、audio、data、hotkeys 四个子结构：video 管图形线程与 mixes，audio 管混音树，data 管各类注册表，hotkeys 管热键与线程，层次清晰便于维护。","s":"libobs/obs-internal.h:549"},
+    {"q":"33.x 引入的 Canvas 与 Video Mix 解决什么问题？","a":"obs_core_data::main_canvas 保证整个程序生命周期存在，每个 obs_canvas 持有自己的 obs_view 与 obs_core_video_mix，可独立设置分辨率、渲染纹理与格式转换，从而支持多画布独立合成。","s":"libobs/obs-internal.h:335"},
+    {"q":"OBS 向零拷贝演进体现在哪些地方？","a":"GPU 编码路径中 obs_core_video_mix::gpu_encoder_queue 把纹理直接交给 obs-video-gpu-encode.c 的编码线程，绕过 CPU 回读；win-capture 也用 D3D11 共享纹理把采集帧直接映射为 GPU 纹理。","s":"docs-analysis/01-架构设计.md §4"}
+  ],
+  "core": [
+    {"q":"obs_startup 做了哪些初始化工作？","a":"obs_startup(locale, module_config_path, store) 位于 libobs/obs.c:1326，分配并初始化全局 obs_core，注册内建的 scene、group、audio_line 源类型。它是所有 libobs API 的入口，必须最先调用。","s":"libobs/obs.c:1326"},
+    {"q":"obs_shutdown 的收尾流程是什么？","a":"obs_shutdown 在 obs.c:1385，停止图形、音频、视频 IO 与热键线程，释放残留的源、输出、编码器并卸载插件，最后销毁 obs_core。退出前前端须先释放所有引用，否则会触发泄漏告警。","s":"libobs/obs.c:1385"},
+    {"q":"obs_reset_video 的作用与返回时机是什么？","a":"obs_reset_video(struct obs_video_info *ovi) 在 obs.c:1526，按 base/cx/cy、fps 与 graphics_module 加载图形后端并建立 obs_core_video_mix；成功后图形线程常驻运行，即使没有输出也持续渲染预览。","s":"libobs/obs.c:1526"},
+    {"q":"obs_reset_audio 如何建立音频管线？","a":"obs_reset_audio(const struct obs_audio_info *oai) 在 obs.c:1646，根据 sample_rate 与 speakers 建立 audio_t 并启动音频线程；它通常先于视频初始化，失败时返回 false，前端需要提示用户检查设备。","s":"libobs/obs.c:1646"},
+    {"q":"obs_video_info 结构包含哪些关键字段？","a":"struct obs_video_info 定义在 libobs/obs.h:211，含 base_width、base_height、output_width、fps_num、fps_den 与 graphics_module 等字段，obs_reset_video 据此决定渲染分辨率、帧率以及要加载的图形后端库名。","s":"libobs/obs.h:211"},
+    {"q":"obs_audio_info 结构描述了什么？","a":"struct obs_audio_info 位于 obs.h:244，主要字段是 sample_rate 与 speakers 声道布局，obs_reset_audio 据此配置 audio_t；后续混音默认以 48kHz 采样率、每 1024 采样为一个处理块。","s":"libobs/obs.h:244"},
+    {"q":"视频初始化相关的错误码有哪些？","a":"obs-defs.h:48 起定义 OBS_VIDEO_SUCCESS、OBS_VIDEO_FAIL、OBS_VIDEO_NOT_SUPPORTED、OBS_VIDEO_INVALID_PARAM 等返回码，obs_reset_video 用它们区分参数错误、适配器能力不足与一般性失败。","s":"libobs/obs-defs.h:48"},
+    {"q":"全局单例 obs_core 单例如何被各模块访问？","a":"全局单例 struct obs_core *obs 声明于 obs-internal.h:587，整个进程只有一份，保存所有子系统与注册表；obs_startup 创建它、obs_shutdown 销毁它，各公开 API 都通过这个指针访问共享状态。","s":"libobs/obs-internal.h:587"},
+    {"q":"obs_core 的四个子结构分别是什么？","a":"四个子结构在 obs-internal.h:575 起依次为 obs_core_video video、obs_core_audio audio、obs_core_data data、obs_core_hotkeys hotkeys；源码注释明确这样分段是为了让核心状态保持整洁有序。","s":"libobs/obs-internal.h:575"},
+    {"q":"obs_core_data 注册表如何索引各类对象？","a":"obs_core_data 在 obs-internal.h:470，用 sources 按 UUID、public_sources 按名称建立 uthash 哈希表，另用 first_output、first_encoder、first_service 等链表管理其余对象，并配备多把互斥锁保护并发。","s":"libobs/obs-internal.h:470"},
+    {"q":"obs_core_video 主要保存哪些图形状态？","a":"obs_core_video 在 obs-internal.h:392，持有 graphics、default_effect、video_thread、tasks 任务队列与 mixes 数组；帧率统计 total_frames、lagged_frames 也在这里，供图形循环做丢帧统计。","s":"libobs/obs-internal.h:392"},
+    {"q":"obs_core_audio 如何支撑拉取式混音？","a":"obs_core_audio 在 obs-internal.h:445，含 audio_t *audio、render_order 与 root_nodes 两组混音树描述数组、monitors 监听设备列表以及 buffered_ts 等缓冲参数，共同支撑音频线程的拉取式树形混音。","s":"libobs/obs-internal.h:445"},
+    {"q":"obs_core_hotkeys 管理哪些热键资源？","a":"obs_core_hotkeys 在 obs-internal.h:511，维护 hotkeys、next_id、bindings、hotkey_thread 与 stop_event，还保存 mute、push_to_talk 等本地化标签，router_func 则负责把按键事件路由到具体回调。","s":"libobs/obs-internal.h:511"},
+    {"q":"obs_context_data 为什么被称为核心对象基类？","a":"obs_context_data 在 obs-internal.h:631，包含 name、uuid、data、settings、signals、procs、control 与 hotkeys 数组；源、输出、编码器、服务等都以它为首成员嵌入，从而复用命名、信号、设置与引用计数。","s":"libobs/obs-internal.h:631"},
+    {"q":"obs_context_data 怎样实现名称和 UUID 双索引？","a":"它同时带有 hh 与 hh_uuid 两个 UT_hash_handle，obs_context_data_insert_name 与 insert_uuid 分别建立名称、UUID 索引，使 obs_get_source_by_name 与 obs_get_source_by_uuid 都能按哈希快速定位对象。","s":"libobs/obs-internal.h:654"},
+    {"q":"obs_weak_ref 的强弱引用如何协作？","a":"obs_weak_ref 在 obs-internal.h:619，只有 volatile long refs 与 weak_refs 两个计数器；强引用归零触发 destroy 销毁对象，弱引用允许其他线程用 obs_weak_source_get_ref 原子地尝试复活对象。","s":"libobs/obs-internal.h:619"},
+    {"q":"obs_weak_object 控制块的结构是什么？","a":"obs_weak_object 在 obs-internal.h:624，内嵌 obs_weak_ref ref 并回指 obs_context_data *object；obs_context_init_control 把它挂到 context.control 上，构成强弱引用控制块，支撑跨线程安全访问。","s":"libobs/obs-internal.h:624"},
+    {"q":"obs_context_data_init 负责哪些字段？","a":"obs_context_data_init 在 obs-internal.h:660 声明，负责设置 type、插件私有 data、settings、name、uuid 与 hotkey_data；它是各类对象构造时复用的统一初始化入口，避免每个对象重复写相同逻辑。","s":"libobs/obs-internal.h:660"},
+    {"q":"对象销毁时如何从注册表摘除？","a":"obs_context_data_remove_name 与 remove_uuid 在 obs-internal.h:670 起声明，销毁时把对象从两张哈希表摘除；obs_context_data_setname 改名时同步维护 rename_cache 与名称索引，保证查找一致性。","s":"libobs/obs-internal.h:670"},
+    {"q":"obs_data_t 在 OBS 中承担什么职责？","a":"obs_data_t 是 obs-data.c 实现的 JSON 式键值设置对象，obs_data_create 定义在 obs-data.c:598；它承载源 settings、插件私有数据与场景集合序列化，是整个配置持久化体系的基础。","s":"libobs/obs-data.c:598"},
+    {"q":"obs_properties_t 如何连接插件与设置界面？","a":"obs_properties_t 由 libobs/obs-properties.c 实现，插件在 get_properties 回调里声明下拉框、滑块等控件；shared/properties-view 把它自动渲染成 Qt 设置界面，实现插件逻辑与 UI 的解耦。","s":"libobs/obs-properties.c"},
+    {"q":"从 main 到插件加载的标准初始化顺序是什么？","a":"标准顺序是 main() 调用 OBSApp::OBSInit，先 obs_startup 初始化核心，再依次 obs_reset_audio、obs_reset_video，随后 obs_add_module_path、obs_load_all_modules、obs_post_load_modules 完成插件装配。","s":"docs-analysis/03-软件时序图.md §1"},
+    {"q":"为什么约定音频先于视频初始化？","a":"音频先于视频是固定约定：时序文档指出 OBSBasic.cpp:881-887 先 obs_reset_audio 建立音频线程，再 obs_reset_video 加载图形后端，保证后续创建源时两类管线都已就绪，避免回调缺失。","s":"docs-analysis/03-软件时序图.md §1"},
+    {"q":"图形线程在什么时机被创建？","a":"图形线程在 obs_reset_video 成功之后创建并常驻，入口 obs_graphics_thread 在 obs-internal.h:598 声明；即便没有输出，它也在 obs_graphics_thread_loop 中持续 tick 源并渲染预览画面。","s":"libobs/obs-internal.h:598"},
+    {"q":"音频线程由谁创建、以什么节拍工作？","a":"音频线程由 obs_reset_audio 内部建立的 audio_t 创建，每 1024 采样触发一次 audio_callback（obs-internal.h:607 声明），完成源树混音后再把结果交给音频编码器、raw 输出与 audio_monitor。","s":"libobs/obs-internal.h:607"},
+    {"q":"四类 obs_register_* 函数如何注册插件？","a":"插件通过 obs_register_source、obs_register_output、obs_register_encoder、obs_register_service 把 obs_*_info 填入 obs_core 的 *_types 数组；核心只保存接口副本，实例统一由 obs_*_create 工厂创建。","s":"libobs/obs-internal.h:557"},
+    {"q":"插件加载完毕后为什么要调用 post_load？","a":"obs_load_all_modules 遍历 module_paths 打开动态库并解析 obs_module_load 等符号；等所有插件都注册完成后，obs_post_load_modules 再统一调用各插件的 post_load 钩子，正确处理插件间依赖。","s":"libobs/obs-module.c:623"},
+    {"q":"obs_get_source_by_name 与 by_uuid 如何保证安全？","a":"obs_get_source_by_name 在 obs.c:2041、obs_get_source_by_uuid 在 obs.c:2053；二者先从哈希索引取弱引用，再调用 obs_source_get_ref 转成强引用，避免查找期间对象被其他线程销毁。","s":"libobs/obs.c:2041"},
+    {"q":"为什么访问 gs_* API 前要进入图形上下文？","a":"obs_enter_graphics 与 obs_leave_graphics 在 obs.c:1808、1814；任何线程调用 gs_* API 前都必须进入图形上下文，它们保证图形设备状态与线程局部上下文正确，防止并发破坏渲染状态。","s":"libobs/obs.c:1808"},
+    {"q":"obs_queue_task 如何跨线程投递任务？","a":"obs_queue_task 在 obs.c:3317，按 OBS_TASK_GRAPHICS 等类型把任务投递到对应队列，wait 参数决定是否阻塞等待。UI 线程借此安全地操作只能在图形线程执行的 GPU 资源。","s":"libobs/obs.c:3317"},
+    {"q":"obs_set_output_source 如何构建输出树根？","a":"obs_set_output_source 在 obs.c:1835，把源挂到 obs_view::channels 的指定通道，旧源会被移除并释放引用；前端通常在初始化时把转场源绑定到通道 0，由此形成整棵输出树的根。","s":"libobs/obs.c:1835"},
+    {"q":"main_canvas 为什么全程存在？","a":"main_canvas 定义在 obs_core_data（obs-internal.h:498），注释明确它在程序整个生命周期保证存在；33.x 的其他画布由 canvases 与 named_canvases 哈希表管理，可按需创建和销毁。","s":"libobs/obs-internal.h:498"},
+    {"q":"obs_view 的 64 个输出通道如何工作？","a":"obs_view 在 obs-internal.h:281，核心字段 channels[64] 提供 64 个输出通道，每个通道可挂一个源并按索引升序叠加渲染，obs_set_output_source 就是写这个数组，全局音频源通常占用额外通道。","s":"libobs/obs-internal.h:281"},
+    {"q":"obs_core_video_mix 为什么是独立合成单元？","a":"obs_core_video_mix 在 obs-internal.h:335，每个 mix 有自己的 obs_view、render_texture、copy_surfaces[NUM_TEXTURES][NUM_CHANNELS]、video_t 与 gpu_encoder_queue，构成一套独立的合成与编码单元。","s":"libobs/obs-internal.h:335"},
+    {"q":"obs_core_data 的 valid 与 private_data 有何用途？","a":"obs_core_data 中的 volatile bool valid 标志核心数据当前是否有效，销毁阶段各 API 据此拒绝新访问；private_data 则由 obs_data_create 建立，保存核心级别的私有配置数据。","s":"libobs/obs-internal.h:502"}
+  ],
+  "source": [
+    {"q":"struct obs_source 的开头字段是如何组织的？","a":"struct obs_source 在 obs-internal.h:813，首成员是 obs_context_data context，随后是 obs_source_info info 与 flags。首成员嵌入实现 C 风格继承，让源复用命名、信号、设置与引用计数能力。","s":"libobs/obs-internal.h:813"},
+    {"q":"obs_source 的 info 字段保存什么？","a":"obs_source::info 保存一份 obs_source_info 回调表副本，含 id、type、output_flags、create、destroy、video_render 等。核心按 id 找到注册信息后复制进源，调用时只面向这张接口表。","s":"libobs/obs-internal.h:815"},
+    {"q":"obs_source 的 flags 与 default_flags 表示什么？","a":"flags 与 default_flags 在 obs-internal.h:818 记录源对外声明的能力标志；obs_source_get_output_flags（obs-source.c:1082）返回实际标志，前端据此决定显示哪些属性与交互入口。","s":"libobs/obs-source.c:1082"},
+    {"q":"enum obs_source_type 定义了哪几种源类型？","a":"enum obs_source_type 在 obs-source.h:33 定义 INPUT、FILTER、TRANSITION、SCENE 四种；SCENE 与 TRANSITION 由 libobs 内建实现，插件一般只实现 INPUT 与 FILTER，obs_source_get_type 可查询具体类型。","s":"libobs/obs-source.h:33"},
+    {"q":"INPUT 类型的源有什么特点？","a":"INPUT 是最常见的源类型，由插件实现 obs_source_info.create 与 destroy，经 obs_source_create 实例化；图片、摄像头、媒体播放器等都属 INPUT，可挂在场景项里或作为滤镜链的输入端。","s":"libobs/obs-source.h:34"},
+    {"q":"FILTER 类型的源如何附加到父源？","a":"FILTER 源必须实现 filter_video 或 filter_audio 回调，通过 obs_source_filter_add 附加到父源；obs_source 用 filter_parent、filter_target 与 filters 数组维护这条链，按顺序依次处理帧数据。","s":"libobs/obs-internal.h:944"},
+    {"q":"TRANSITION 类型如何实现双源切换？","a":"TRANSITION 由 obs-source-transition.c 内建，obs_transition_start 把新旧场景记入 transition_sources[2]，转场期间按进度混合 transition_texrender[0] 与 [1] 两张纹理，并对音频做交叉淡化。","s":"libobs/obs-internal.h:969"},
+    {"q":"SCENE 类型与 obs_scene 是什么关系？","a":"SCENE 源的本体由 libobs/obs-scene.c 实现，obs_scene_get_source 返回其 obs_source 指针，obs_scene_from_source 反向还原；场景与源双向关联，场景项只负责位置、缩放和旋转等变换。","s":"libobs/obs-scene.c"},
+    {"q":"OBS_SOURCE_VIDEO 标志控制什么行为？","a":"OBS_SOURCE_VIDEO 定义在 obs-source.h:88，值为 1<<0，表示源产出视频并需要走 video_render 或异步帧路径；没有该标志的源不会进入视频渲染树，纯音频源通常不带它。","s":"libobs/obs-source.h:88"},
+    {"q":"OBS_SOURCE_AUDIO 标志有什么作用？","a":"OBS_SOURCE_AUDIO 在 obs-source.h:97，值为 1<<1，表示源提供音频数据。带此标志的源会被加入 obs_core_audio::render_order 参与树形混音，否则其音频相关回调不会被调用。","s":"libobs/obs-source.h:97"},
+    {"q":"OBS_SOURCE_ASYNC 标志代表什么渲染方式？","a":"OBS_SOURCE_ASYNC 在 obs-source.h:100 为 1<<2，常与 VIDEO 组合成 OBS_SOURCE_ASYNC_VIDEO。异步源自产帧并调用 obs_source_output_video，由图形线程在 tick 阶段上传纹理，而非在 render 中即时绘制。","s":"libobs/obs-source.h:100"},
+    {"q":"OBS_SOURCE_COMPOSITE 标志用于什么场景？","a":"OBS_SOURCE_COMPOSITE 在 obs-source.h:140，值为 1<<6，表示源自行组合渲染子源，核心据此把它当作容器处理。场景与转场都带有该标志，以便实现递归的子源绘制与变换。","s":"libobs/obs-source.h:140"},
+    {"q":"OBS_SOURCE_DO_NOT_DUPLICATE 如何避免重复？","a":"OBS_SOURCE_DO_NOT_DUPLICATE 在 obs-source.h:149，声明源不应在树中重复出现；obs_source 的 audio_is_duplicated 字段配合它做音频去重，防止同一源多次计入混音导致音量被放大。","s":"libobs/obs-source.h:149"},
+    {"q":"obs_source_create 的创建流程是什么？","a":"obs_source_create 在 obs-source.c:556，按 id 查注册表、复制 obs_source_info、初始化 obs_context_data 并调用插件的 create 回调；失败时返回 NULL，前端可据此提示用户源创建失败。","s":"libobs/obs-source.c:556"},
+    {"q":"obs_source_destroy 释放了哪些资源？","a":"obs_source_destroy 在 obs-source.c:745，先发 source_destroy 与 destroy 信号，再移除滤镜、释放异步帧与音频缓冲，最后调用 info.destroy 并回收 context；它只在强引用归零时被间接触发。","s":"libobs/obs-source.c:745"},
+    {"q":"obs_source_addref 与 release 如何管理生命周期？","a":"obs_source_addref 与 obs_source_release 在 obs-source.c:882、890，操作 obs_weak_ref.refs；release 使计数归零后触发销毁。它们保证跨线程持有源期间对象不会被提前释放。","s":"libobs/obs-source.c:882"},
+    {"q":"obs_source_get_ref 与弱引用复活有什么区别？","a":"obs_source_get_ref 在 obs-source.c:925，先检查 destroying 再原子增加强引用；obs_weak_source_get_ref 则从弱句柄尝试复活，失败返回 NULL，这一机制是多线程安全访问源的关键。","s":"libobs/obs-source.c:925"},
+    {"q":"同步源的渲染路径是什么样的？","a":"同步源在图形线程的 obs_source_video_render（obs-source.c:2985）中被调用，直接在当前渲染目标上绘制。图片源和游戏捕获钩子走这条路径，无需额外帧队列与纹理上传步骤。","s":"libobs/obs-source.c:2985"},
+    {"q":"异步源如何借助 video_tick 上屏？","a":"异步源由 obs_source_video_tick（obs-source.c:1394）驱动：图形线程每帧检查 async_frames 队列，把最新 obs_source_frame 上传为 async_textures；render 阶段只需直接绘制这张纹理。","s":"libobs/obs-source.c:1394"},
+    {"q":"obs_source_output_video 如何投递异步帧？","a":"obs_source_output_video 在 obs-source.c:3632，由采集线程把 obs_source_frame 压入 async_frames 队列并维护时间戳；该函数加锁保护队列，图形线程在 tick 时取出，实现生产消费解耦。","s":"libobs/obs-source.c:3632"},
+    {"q":"obs_source_output_audio 如何处理采集音频？","a":"obs_source_output_audio 在 obs-source.c:4066，接收 obs_source_audio 数据，先跑 filter_audio 滤镜链，再重采样与声道混洗后写入 audio_input_buf，供音频线程按时间戳拉取混音。","s":"libobs/obs-source.c:4066"},
+    {"q":"异步帧队列相关字段有哪些？","a":"async_frames 是 DARRAY(obs_source_frame *) 帧队列（obs-internal.h:919），由 async_mutex 保护并发；async_preload_frame 与 async_cache 承担预加载和格式转换缓存，减少运行期分配开销。","s":"libobs/obs-internal.h:919"},
+    {"q":"async_textures 数组如何存放上传后的纹理？","a":"async_textures[MAX_AV_PLANES] 在 obs-internal.h:898 保存上传后的 GPU 纹理，async_texture_formats 记录像素格式；async_update_texture 标记是否需要重新上传，避免每帧做无谓的 CPU 到 GPU 拷贝。","s":"libobs/obs-internal.h:898"},
+    {"q":"异步缓存字段怎样减少纹理重建？","a":"async_cache_width、async_cache_height 与 async_cache_format 从 obs-internal.h:905 起描述转换缓存，async_convert_width 按平面记录尺寸；只有分辨率或格式变化时才重建纹理，节省显存与带宽。","s":"libobs/obs-internal.h:905"},
+    {"q":"video_tick 与 video_render 如何分工？","a":"video_tick 收到 seconds 参数用于推进源的时间状态，异步源借此完成帧上屏，转场源借此推进进度；video_render 只按当前状态绘制。二者分工让状态更新与绘制职责分离。","s":"libobs/obs-source.c:1394"},
+    {"q":"audio_input_buf 环形缓冲怎样工作？","a":"audio_input_buf[MAX_AUDIO_CHANNELS] 在 obs-internal.h:874，是每源按声道的 deque 环形缓冲；采集线程随时写入带时间戳的样本，音频线程只取最贴近当前时段的块，实现线程解耦。","s":"libobs/obs-internal.h:874"},
+    {"q":"audio_output_buf 如何对应多路混音轨？","a":"audio_output_buf[MAX_AUDIO_MIXES][MAX_AUDIO_CHANNELS] 在 obs-internal.h:877 保存混音后的浮点样本；MAX_AUDIO_MIXES 为 6，对应最多 6 条混音轨，audio_mix_buf 作为临时混音区。","s":"libobs/obs-internal.h:877"},
+    {"q":"audio_actions 如何实现精确音频控制？","a":"audio_actions 是 DARRAY(struct audio_action)（obs-internal.h:876），音量、静音、按压通话等变更带时间戳入队，混音时逐样本应用，保证动作在精确采样点生效而非整块跳变。","s":"libobs/obs-internal.h:876"},
+    {"q":"audio_is_duplicated 字段解决什么问题？","a":"audio_is_duplicated 在 obs-internal.h:895，标记源在当前 tick 的音频树中是否出现多次；配合 OBS_SOURCE_DO_NOT_DUPLICATE，混音时跳过重复分支，防止同一源音量被重复叠加。","s":"libobs/obs-internal.h:895"},
+    {"q":"为什么音量字段要分成用户值与生效值？","a":"obs_source 同时保留 user_volume 与 volume、user_muted 与 muted 两组字段（obs-internal.h:869 起）：前者是用户设定，后者是实际生效值，转场淡入淡出可临时改变后者而不覆盖用户设置。","s":"libobs/obs-internal.h:869"},
+    {"q":"obs_source_set_volume 做了什么？","a":"obs_source_set_volume 在 obs-source.c:4552，写入 user_volume 并向 context.signals 发 volume 信号、向全局发 source_volume；实际混音用的是 volume，便于转场等逻辑叠加临时增益。","s":"libobs/obs-source.c:4552"},
+    {"q":"obs_source_set_muted 如何处理静音？","a":"obs_source_set_muted 在 obs-source.c:5067，更新静音状态并发出 mute 信号；它与 push_to_mute 等字段配合，按 audio_actions 中的时间戳在混音阶段精确生效。","s":"libobs/obs-source.c:5067"},
+    {"q":"show_refs 与 activate_refs 为什么要用计数？","a":"show_refs 与 activate_refs 在 obs-internal.h:829、832，用引用计数保证 show/hide、activate/deactivate 回调只在第一次进入与最后一次离开时触发，避免树中多路径引用导致重复调用。","s":"libobs/obs-internal.h:829"},
+    {"q":"obs_source_show 与 hide 发出哪些信号？","a":"obs_source_show 与 obs_source_hide 在 obs-source.c:1226 附近发出 source_show、show 与 source_hide、hide 信号；它们调整 showing 状态与引用计数，前端据此更新源工具栏与场景项图标。","s":"libobs/obs-source.c:1212"},
+    {"q":"激活态与显示态有什么区别？","a":"obs_source_activate 与 obs_source_deactivate 在 obs-source.c:1268、1282，管理 active 标志并发信号；激活表示源正被输出使用，显示只表示在预览树中可见，两者语义独立。","s":"libobs/obs-source.c:1268"},
+    {"q":"active、showing、enabled 三态如何区分？","a":"三个布尔量位于 obs-internal.h:845-849：active 是激活态由输出状态驱动，showing 是可见态由预览树决定，enabled 是启用态由用户控制，三者彼此独立互不覆盖。","s":"libobs/obs-internal.h:845"},
+    {"q":"obs_source_enabled 与 set_enabled 如何影响渲染？","a":"obs_source_enabled 与 obs_source_set_enabled 在 obs-source.c:5040、5045，读写 enabled 字段并发出 enable 信号；禁用源不会加入渲染与混音树，但保留配置和引用，方便随时重新启用。","s":"libobs/obs-source.c:5040"},
+    {"q":"obs_source 的滤镜链由哪些字段维护？","a":"filters 是 DARRAY(struct obs_source *)（obs-internal.h:947），filter_parent 指向被滤镜作用的源，filter_target 指向目标；滤镜链按数组顺序执行，filter_mutex 保护并发增删。","s":"libobs/obs-internal.h:947"},
+    {"q":"obs_source_filter_add 如何添加滤镜？","a":"obs_source_filter_add 在 obs-source.c:3113，校验 filter 后加入 filters 数组并向全局和源分别发 source_filter_add、filter_add 信号；obs_source_filter_remove 在 3203 做对称处理并释放引用。","s":"libobs/obs-source.c:3113"},
+    {"q":"滤镜离屏渲染用到哪些字段？","a":"filter_texrender 与 allow_direct 在 obs-internal.h:949，视频滤镜先用 obs_source_process_filter_begin 把父源渲染到纹理再套 shader；允许直接渲染时核心可省去一次离屏拷贝开销。","s":"libobs/obs-internal.h:949"},
+    {"q":"转场双源与纹理字段如何配合？","a":"transition_sources[2] 在 obs-internal.h:975 保存转场的新旧两个源，transition_texrender[2] 保存各自纹理；transition_mode 与 transition_start_time 决定混合进度和时长。","s":"libobs/obs-internal.h:975"},
+    {"q":"obs_scene 与 obs_scene_item 如何引用源？","a":"obs_scene 持有 items 数组与源本体指针，obs_scene_item 定义在 obs-scene.h，含 parent、source、pos、scale、rot 等字段；同一个 obs_source 可被多个场景项引用，靠引用计数共享。","s":"libobs/obs-scene.h"},
+    {"q":"场景项可见性如何影响渲染？","a":"obs_sceneitem_set_visible 在 obs-scene.c:3014，切换可见字段并触发相关信号；隐藏的项不参与渲染但仍保留变换与源引用，取消隐藏时可原样恢复位置与缩放。","s":"libobs/obs-scene.c:3014"},
+    {"q":"为什么场景项不拥有源？","a":"场景项只做容器与变换：obs_sceneitem_addref 与 release 在 obs-scene.c:2395、2401 管理项自身引用，obs_source_release 管理源引用，两者分离使多场景共享同一源成为可能。","s":"libobs/obs-scene.c:2395"},
+    {"q":"obs_source_get_name 与 get_uuid 有何差异？","a":"obs_source_get_name 在 obs-source.c:4276、obs_source_get_uuid 在 4281，读取 obs_context_data 中的 name 与 uuid；名称可重复且可改，UUID 全程唯一稳定，是场景集合序列化的首选键。","s":"libobs/obs-source.c:4276"},
+    {"q":"源查找为什么要同时支持名称与 UUID？","a":"obs_core_data 为源维护两张 uthash 表：sources 按 uuid（hh_uuid）、public_sources 按名称（hh）；obs_get_source_by_uuid 优先按 UUID 查找，避免源改名后场景集合中的引用失效。","s":"libobs/obs-internal.h:472"},
+    {"q":"源信号是如何统一广播的？","a":"obs_source_dosignal 是源发信号的统一入口，obs-source.c:120 附近用 signal_handler_add_array 注册 source_signals；它同时向源自身与全局 obs->signals 广播，前端可任选层级订阅。","s":"libobs/obs-source.c:125"},
+    {"q":"常见的源信号有哪些？","a":"源常用信号包括 activate、deactivate、show、hide（obs-source.c:1212-1233）、source_update、source_destroy、volume 与 mute 等，让前端无需轮询即可把界面状态与管线状态保持同步。","s":"libobs/obs-source.c:1212"},
+    {"q":"异步视频去隔行依赖哪些字段？","a":"deinterlace_mode、deinterlace_offset 与 prev_async_frame 从 obs-internal.h:932 起用于异步视频去隔行；obs-source-deinterlace.c 实现 Yadif 等模式，在纹理上传之前处理交错帧。","s":"libobs/obs-internal.h:932"},
+    {"q":"能力标志与画布归属如何被前端使用？","a":"obs_source_get_output_flags 在 obs-source.c:1082 返回 flags，obs_source 末尾的 obs_weak_canvas_t *canvas（obs-internal.h:1011）记录场景所属画布；两者帮助前端按能力布局 UI 并适配多画布。","s":"libobs/obs-internal.h:1011"}
+  ]
+};
+window.QA_2 = {
+  "scene": [
+    {"q":"OBS 中「场景（scene）」在源码里本质上是什么？","a":"场景并非独立类型，而是 obs_source_info.type=OBS_SOURCE_TYPE_SCENE 的特化 Source。struct obs_scene 内嵌 source 指针与 first_item 链表，场景本体通过 obs_scene_get_source() 暴露给输出通道，统一纳入递归渲染树，体现「一切皆 Source」的设计意图。","s":"libobs/obs-scene.h:99"},
+    {"q":"obs_scene 与 obs_source 是双向关联吗？","a":"是。obs_scene->source 指向场景源本体，而该 source（type=SCENE）的 context.data 反过来指向 obs_scene。创建时 obs_scene_create() 调用 obs_source_create 并赋值 scene->source。核心按 Source 流程渲染时，回调能取回场景数据遍历场景项。","s":"libobs/obs-scene.c:154"},
+    {"q":"obs_scene_item 结构的核心职责是什么？","a":"obs_scene_item 是「变换容器」而非源本身：它持有 parent、source 指针及 pos/scale/rot、bounds、crop 字段，只描述某源在场景中的位置与外观。render_item_texture() 依此生成 draw_transform 再调用源的 video_render，使变换与源内容解耦。","s":"libobs/obs-scene.c:743"},
+    {"q":"同一个源可以被多个场景项引用吗？","a":"可以。obs_scene_item 通过 volatile long ref 引用计数共享 source 指针，同一源可挂到不同场景的多个项上。detach_sceneitem/attach_sceneitem 只调整项链表而不销毁源，引用归零才释放，实现「一份源、多处摆放」的享元式复用。","s":"libobs/obs-scene.c:294"},
+    {"q":"场景项的位置 pos 如何存储与应用？","a":"struct vec2 pos 保存场景项坐标，absolute_coordinates 决定是绝对还是归一化坐标。update_item_transform() 在源尺寸或 pos 变化时重算 box_transform 与 draw_transform，render_item() 据此设置矩阵，变更经 item_transform 信号通知前端刷新。","s":"libobs/obs-scene.h:55"},
+    {"q":"scale 缩放与 scale_filter 如何配合？","a":"scale 是场景项的 vec2 缩放系数，scale_filter（enum obs_scale_type）指定缩放算法，如双线性、区域、锐化。update_item_transform() 把 scale 与 output_scale 合并进变换矩阵，render_item_texture() 据此选择采样质量，兼顾画质与性能。","s":"libobs/obs-scene.h:67"},
+    {"q":"rot 旋转字段有什么含义？","a":"rot 是以度为单位的场景项旋转角，配合 align 对齐基点决定旋转中心。obs_sceneitem_set_rot() 写入后触发 update_item_transform()，把旋转合入 draw_transform。旋转只作用于变换容器而不改变源本身，因而可无损反复调整。","s":"libobs/obs-scene.h:58"},
+    {"q":"bounds 边界约束机制由哪些字段实现？","a":"由 enum obs_bounds_type bounds_type、bounds_align、vec2 bounds、crop_to_bounds 及 bounds_crop 共同实现。calculate_bounds_data() 依据源尺寸与边界类型算出实际缩放，使源按「适应/填充」等方式贴合指定矩形，常用于自动构图。","s":"libobs/obs-scene.h:76"},
+    {"q":"crop 裁剪字段如何生效？","a":"struct obs_sceneitem_crop crop 分别记录 left/top/right/bottom 四边裁剪像素。crop_enabled() 判断是否有裁剪，crop_to_bounds() 决定是否连边界裁剪一并应用。渲染时通过 obs_source_set_texcoords_centered() 调整纹理坐标实现裁剪，无需复制像素。","s":"libobs/obs-scene.c:716"},
+    {"q":"场景项如何排序？","a":"obs_scene_item 用 prev/next 双向链表组织，first_item 为头。obs_sceneitem_set_order() 按 enum obs_order_movement 上移、下移、置顶或置底，obs_scene_reorder_items() 可按给定顺序重排，reorder 信号通知前端。链表次序即叠加次序。","s":"libobs/obs-scene.c:2733"},
+    {"q":"场景项可见性如何控制？","a":"user_visible 记录用户设定，visible 是结合父级分组后的实际可见性。obs_sceneitem_set_visible() 更新并触发 set_visibility()，后者调用 obs_source_add/remove_active_child 管理活跃引用并发 item_visible 信号，隐藏项在 render_item 中跳过绘制。","s":"libobs/obs-scene.c:3014"},
+    {"q":"分组（group）在源码中如何实现？","a":"分组是一种特殊场景：obs_scene->is_group 为真，其对应 source 的 id 为 group_info.id。group 场景项的 is_group 也置位，可通过 obs_sceneitem_group_get_scene() 取回内部子场景，从而复用场景的遍历与变换能力实现嵌套容器。","s":"libobs/obs-scene.c:158"},
+    {"q":"场景集合的保存与加载如何落到场景项？","a":"scene_load_item() 从 obs_data_t 读取源的 uuid/name 与 transform 信息，重建场景项并发 item_add 信号；保存时逐项序列化 source 引用与 crop、pos、scale 等字段。obs_scene_save_transform_states()/load_transform_states() 专门处理变换状态持久化。","s":"libobs/obs-scene.c:1119"},
+    {"q":"如何向场景新增场景项？","a":"obs_scene_add() 以目标 source 创建 obs_scene_item，attach_sceneitem() 挂入 first_item 链表，并调用 obs_source_add_active_child() 建立活跃父子关系，最后发出 item_add 信号。全程持有源的强引用，确保项存在期间源不被销毁。","s":"libobs/obs-scene.c:2281"},
+    {"q":"移除场景项的流程是怎样的？","a":"obs_sceneitem_remove() 标记 removed 后进入 obs_sceneitem_remove_internal()：先取消选中、detach 出链表、移除活跃子引用，再由 signal_item_remove() 发 item_remove 信号，最后释放自引用。延迟移除避免遍历中修改链表导致崩溃。","s":"libobs/obs-scene.c:2410"},
+    {"q":"复制场景或场景项如何实现？","a":"obs_scene_duplicate() 为每个源决定复用引用还是深拷贝：make_unique 或 item->is_group 时走 dup_child()，再逐项复制 pos/crop 等变换；new_scene->is_group 与私有设置也一并复制，区分「共享源」与「独立副本」两种语义。","s":"libobs/obs-scene.c:1964"},
+    {"q":"场景项有哪些信号？","a":"obs_scene_signals 数组声明 item_add、item_remove、reorder、refresh、item_visible、item_select、item_deselect、item_transform、item_locked 九类信号，经信号数组注册到场景源的 signal_handler。前端订阅即可响应场景变化，无需轮询。","s":"libobs/obs-scene.c:49"},
+    {"q":"item_transform 信号何时发出？","a":"当用户修改 pos/scale/rot/bounds/crop 任一变换后，update_item_transform() 完成矩阵重算并发出 item_transform(scene,item)，UI 借此同步属性面板数值。它与 reorder 信号分工明确：前者管几何变换，后者管层级顺序。","s":"libobs/obs-scene.c:601"},
+    {"q":"场景项的选中与锁定如何记录？","a":"selected 与 locked 两个 bool 字段，分别由 obs_sceneitem_select()/obs_sceneitem_selected() 和 obs_sceneitem_set_locked() 读写，并发 item_select/item_deselect/item_locked 信号。locked 项在 UI 中禁止拖动，但不影响渲染线程绘制。","s":"libobs/obs-scene.h:48"},
+    {"q":"变换更新为何要延迟与去重？","a":"update_transform、update_group_resize 标志配合 defer_update、defer_group_resize 计数实现延迟批量更新，source_size_changed() 检测源尺寸未变则跳过重算。update_transforms_and_prune_sources() 在帧末统一处理并清理已移除源，减少抖动与重复计算。","s":"libobs/obs-scene.c:1008"},
+    {"q":"场景项支持哪些混合模式？","a":"enum obs_blending_method blend_method 与 enum obs_blending_type blend_type 描述项与背景的合成方式。obs_blend_mode_params 表把每种 OBS 混合模式映射为 GS_BLEND_ONE、GS_BLEND_INVSRCALPHA 等后端参数，render_item_texture() 据此设置混合状态。","s":"libobs/obs-scene.c:68"},
+    {"q":"场景项级显示/隐藏转场如何实现？","a":"每个项有 show_transition、hide_transition 源指针及对应 duration。set_visibility() 在可见性翻转时启动相应转场源，使单项淡入淡出而非硬切。这把转场能力下沉到场景项层级，丰富了场景内部动效表现。","s":"libobs/obs-scene.h:89"},
+    {"q":"item_action 音频动作队列有何用途？","a":"obs_scene_item 内嵌 DARRAY(struct item_action) audio_actions，与 actions_mutex 配合，记录场景项音量的带时间戳变更。音频线程混音时按样本时刻应用这些动作，实现与视频一致的精确音量与静音时序控制。","s":"libobs/obs-scene.h:86"},
+    {"q":"场景项的 id 有什么作用？","a":"int64_t id 由场景的 id_counter 分配，obs_sceneitem_set_id()/get_id() 读写，obs_scene_find_sceneitem_by_id() 按 id 查找。相比名称，id 在场景集合保存加载与脚本引用中稳定唯一，避免重命名导致引用失效。","s":"libobs/obs-scene.h:39"},
+    {"q":"private_settings 字段为何存在？","a":"每个 obs_scene_item 持有 obs_data_t *private_settings，供前端存放与该项绑定、但不属于源本身的私有数据，如 UI 布局标记。它随场景项保存加载，与源的公共 settings 分离，保证同一源被多项引用时各容器有独立附加信息。","s":"libobs/obs-scene.h:84"}
+  ],
+  "transition": [
+    {"q":"转场在源码中如何标识？","a":"转场同样是 Source：obs_source_info.type 必须为 OBS_SOURCE_TYPE_TRANSITION，transition_valid() 会校验此类型。libobs 内建实现集中在 obs-source-transition.c，插件如 obs-transitions 只需提供 transition_start 等回调与混合算法。","s":"libobs/obs-source-transition.c:33"},
+    {"q":"transition_sources[2] 是什么？","a":"obs_source 内嵌 obs_source_t *transition_sources[2]，分别保存旧源 [0] 与目标源 [1]。转场期间两源都被渲染到各自的 texrender，结束后 obs_transition_stop() 把 [1] 提升到 [0]、清空 [1]，形成新的稳态显示源。","s":"libobs/obs-internal.h:975"},
+    {"q":"obs_transition_start() 做了什么？","a":"它校验类型后把 dest 设为 transition_sources[1]，必要时用 obs_transition_set() 回退，记录 transition_start_time=os_gettime_ns()，调用插件 info.transition_start，并发出 source_transition_start 与 transition_start 信号，正式开启一次转场。","s":"libobs/obs-source-transition.c:327"},
+    {"q":"转场的视频混合如何用 texrender？","a":"初始化时创建 transition_texrender[0]、[1] 两个 gs_texrender（GS_RGBA）。obs_transition_video_render2() 内先 reset，再把两源分别绘制到各自纹理，由插件回调按 t 混合，get_texture() 取回结果，texrender 提供离屏渲染目标。","s":"libobs/obs-source-transition.c:49"},
+    {"q":"转场期间音频如何交叉淡化？","a":"转场源作为父节点对两个子源做 audio_render，按进度 t 对 source[0] 施加 1-t、对 source[1] 施加 t 的增益后相加实现 crossfade，与视频共用 calc_time() 进度保证声画同步，插件也可覆写音频回调实现定制混音。","s":"docs-analysis/03-软件时序图.md §5"},
+    {"q":"手动转场（MANUAL）如何工作？","a":"OBS_TRANSITION_MODE_MANUAL 下不按时间自动推进，而由 transition_manual_val/target 表示进度。obs_transition_set_manual_time() 设置目标，calc_time() 直接返回 manual_val；torque 非零时用 calc_torquef() 平滑逼近，适合滑块控制。","s":"libobs/obs-source-transition.c:202"},
+    {"q":"Stinger 转场机制是什么？","a":"Stinger 属于插件转场：它把一个媒体文件作为遮罩动画播放，其 info.video_render 按动画帧混合两源纹理。核心只提供 transition_sources 与 texrender 基础设施，具体遮罩采样由 plugins/obs-transitions 实现，体现接口与实现分离。","s":"docs-analysis/02-模块划分.md §5.4"},
+    {"q":"转场时长如何记录？","a":"obs_transition_start() 的 duration_ms 参数写入 transition->transition_duration。calc_time() 用当前时间与 transition_start_time 之差除以 duration 得到 0 到 1 的进度；end==0 或超时直接返回 1.0，表示转场立即完成。","s":"libobs/obs-source-transition.c:456"},
+    {"q":"如何获取转场当前进度？","a":"obs_transition_get_time() 经 get_video_time() 用视频时间 obs->video.video_time 调用 calc_time() 计算。手动模式返回 manual_val，自动模式按经过时间线性插值。前端进度条与插件混合系数都依赖这个统一进度值。","s":"libobs/obs-source-transition.c:470"},
+    {"q":"子源如何激活与反激活？","a":"activate_transition() 通过 obs_source_add_active_child() 把子源登记为活跃，确保转场期间持续 tick 与渲染；obs_transition_stop() 用 remove_active_child() 解除旧源活跃引用，并以 transition_source_active[] 标记状态，避免无谓开销。","s":"libobs/obs-source-transition.c:303"},
+    {"q":"transition_stop 信号何时发出？","a":"handle_stop() 先调用插件 info.transition_stop 回调，再 obs_source_dosignal() 发出 source_transition_stop 与 transition_stop 信号。图形线程检测转场完成后在 obs_transition_video_render2() 内触发 obs_transition_stop()，前端据此更新状态。","s":"libobs/obs-source-transition.c:656"},
+    {"q":"transition_start 信号与回调顺序？","a":"obs_transition_start() 先调用插件 info.transition_start，设置 start_time、切换目标源，最后发出 source_transition_start 与 transition_start 信号。该顺序保证插件在信号观察者响应前已完成自身初始化，避免竞态。","s":"libobs/obs-source-transition.c:360"},
+    {"q":"transition_valid() 有何作用？","a":"它是所有 obs_transition_* API 的入口守卫，检查指针有效且 info.type==OBS_SOURCE_TYPE_TRANSITION，否则打印以函数名为标识的错误并返回 false。集中校验避免对普通 Source 误用转场接口导致内存破坏。","s":"libobs/obs-source-transition.c:28"},
+    {"q":"obs_transition_set() 与 force_stop 区别？","a":"obs_transition_set() 在无转场进行时直接把 source 装到 transition_sources[0] 作为稳态源并重置 manual 值；obs_transition_force_stop() 则调用 handle_stop() 主动结束当前转场并发信号。前者设置内容，后者终止过程。","s":"libobs/obs-source-transition.c:420"},
+    {"q":"手动扭矩 torque/clamp 参数含义？","a":"obs_transition_set_manual_torque() 保存 torque 与 clamp。torque 控制 manual_val 逼近 target 的速度，clamp 限制每帧最大变化量，calc_torquef() 据此插值，让手动转场既可瞬时跳转也可平滑跟随，满足不同操控手感。","s":"libobs/obs-source-transition.c:385"}
+  ],
+  "filter": [
+    {"q":"滤镜在源码中也是 Source 吗？","a":"是。滤镜是 obs_source_info.type=OBS_SOURCE_TYPE_FILTER 的特殊源，拥有 context、settings 与独立插件 data。obs_source_filter_add() 把它挂到父源的 filters 数组。复用 Source 框架使滤镜天然具备引用计数、属性面板与信号能力。","s":"libobs/obs-source.c:491"},
+    {"q":"filter_parent 字段指向谁？","a":"obs_source 的 filter_parent 指向挂载该滤镜的父源，obs_filter_get_parent() 直接返回它。滤镜借此取得父源尺寸与色彩空间等上下文。销毁父源时会遍历 filters 并把各滤镜 filter_parent 置空，防止悬垂指针。","s":"libobs/obs-source.c:945"},
+    {"q":"滤镜链的顺序如何组织？","a":"父源用 DARRAY(struct obs_source *) filters 数组按添加顺序存放滤镜，索引小者先应用。同步视频滤镜顺序遍历，异步帧滤镜 filter_async_video() 却从 filters.num-1 逆序处理，以抵消数组与处理栈的次序差异，保证语义一致。","s":"libobs/obs-internal.h:947"},
+    {"q":"obs_source_filter_add() 流程？","a":"它先校验 source 与 filter 有效且 filter 类型为 FILTER，然后给父源加引用、把 filter 放入 filters 数组、设置 filter->filter_parent=source，并调用插件 info.filter_add，最后发出 reorder_filters 相关信号，让滤镜开始作用于父源。","s":"libobs/obs-source.c:3113"},
+    {"q":"obs_source_filter_remove() 如何摘除滤镜？","a":"obs_source_filter_remove_refless() 从父源 filters 数组查找并移除目标，若插件实现 info.filter_remove 则调用之，随后把 filter->filter_parent 置 NULL 并释放父源引用。公开的 obs_source_filter_remove() 只是加校验后的包装。","s":"libobs/obs-source.c:3162"},
+    {"q":"视频滤镜 filter_video 回调如何调用？","a":"对异步源，filter_async_video() 在 filter_mutex 保护下遍历 filters，跳过未启用的项，把当前帧交给 filter->info.filter_video(data,in)，返回值继续传给下一个滤镜；返回 NULL 则中断链，实现逐滤镜串行的帧处理流水线。","s":"libobs/obs-source.c:3368"},
+    {"q":"音频滤镜 filter_audio 如何处理？","a":"filter_async_audio() 逆序遍历 filters，对启用且实现 info.filter_audio 的滤镜依次调用，帧数据在链上传递，返回 NULL 表示丢弃。音频滤镜随 obs_source_output_audio() 路径在采集侧同步完成，不占用音频混音线程。","s":"libobs/obs-source.c:3904"},
+    {"q":"process_filter_begin 的作用是什么？","a":"obs_source_process_filter_begin() 委托 _with_color_space()，先取 filter_target 与 filter_parent，校验存在并重置 filter_bypass_active。它准备把父源或其上游结果渲染到临时纹理供滤镜 effect 采样，是同步视频滤镜渲染第一步。","s":"libobs/obs-source.c:4382"},
+    {"q":"process_filter_end 完成什么？","a":"obs_source_process_filter_end() 接收 effect、width、height，用该 effect 把滤镜纹理绘制回目标并标记滤镜输出尺寸。它与 begin 成对使用，构成「把父源画到纹理、shader 处理、输出」的标准同步滤镜模板。","s":"libobs/obs-source.c:4504"},
+    {"q":"allow_direct 直接渲染的意义？","a":"process_filter_begin 的 allow_direct 参数（enum obs_allow_direct_render）在滤镜无实际效果时可让父源直接绘制到目标，跳过纹理往返，节省 GPU 带宽。filter_bypass_active 记录是否走了旁路，是性能优化的关键开关。","s":"libobs/obs-source.c:4399"},
+    {"q":"filter_target 与 filter_parent 区别？","a":"filter_parent 是挂载滤镜的直接父源，filter_target 是滤镜链中位于本滤镜之前、真正提供图像的上游，可能是父源或前一个滤镜。obs_filter_get_target() 返回后者，process_filter_begin 用它取待处理纹理实现链式串联。","s":"libobs/obs-source.c:4401"},
+    {"q":"滤镜开关与信号如何联动？","a":"每个滤镜源有 enabled 标志，异步处理时跳过未启用滤镜。滤镜顺序或增删完成后 obs_source_dosignal(source,NULL,reorder_filters) 通知前端刷新滤镜列表 UI，使属性变更与界面展示保持同步一致。","s":"libobs/obs-source.c:3356"},
+    {"q":"同步滤镜如何作用于父源纹理？","a":"同步视频滤镜在父源的 video_render 回调内执行：process_filter_begin 把上游渲染到 texrender，滤镜用自定义 effect 采样该纹理并绘制，process_filter_end 收尾。整个过程在图形线程的源树递归渲染中就地完成，无需回读 CPU。","s":"libobs/obs-source.c:4388"},
+    {"q":"音频滤镜为何同步处理？","a":"obs_source_output_audio() 在任何采集线程被调用时，先经过 filter_async_audio() 链即时处理，再重采样写入 audio_input_buf。这样滤镜跟随数据推送执行，与音频线程按时间戳拉取混音解耦，避免混音阶段重复处理。","s":"docs-analysis/01-架构设计.md §5"},
+    {"q":"滤镜的尺寸与色彩空间从何而来？","a":"get_recurse_width/height 对 type=FILTER 的源返回 get_base_width/height；obs_source_get_color_space() 对滤镜会转发给 filter_parent 查询，保证滤镜继承父源基准尺寸与色彩空间，输出与父源管线保持一致。","s":"libobs/obs-source.c:3028"}
+  ],
+  "video": [
+    {"q":"图形线程在 OBS 线程模型中的地位？","a":"libobs 常驻三大主线程为图形线程、视频 IO 线程、音频线程。图形线程入口 obs_graphics_thread()，每帧负责 tick 源、渲染各 mix、格式转换与回读、预览呈现及执行任务队列，是视频管线的调度核心。","s":"docs-analysis/01-架构设计.md §3"},
+    {"q":"obs_graphics_thread_loop() 每帧顺序？","a":"依次执行 update_active_states、gs_begin_frame、tick_sources、（Windows）PeekMessage 泵、output_frames、render_displays、execute_graphics_tasks、video_sleep。固定骨架由核心掌控，源回调填充细节，是模板方法模式的体现。","s":"libobs/obs-video.c:1094"},
+    {"q":"update_active_states() 做什么？","a":"它检查每个 obs_core_video_mix 的 raw_active 与 gpu_encoder_active 计数，更新 was_active 等状态，决定本帧是否需要 render_video、下载帧与格式转换。无输出活跃时仍渲染预览，但跳过编码相关的昂贵步骤。","s":"libobs/obs-video.c:1073"},
+    {"q":"gs_begin_frame() 的意义？","a":"位于帧循环开头，通知图形后端新的一帧开始，后端可在此处理设备状态、丢失设备检测或提交上一帧资源。之后所有 gs_* 绘制都在当帧上下文内，直到 swapchain present 才结束。","s":"libobs/obs-video.c:1105"},
+    {"q":"tick_sources() 的职责？","a":"tick_sources(cur_time,last_time) 遍历源树调用各源的 video_tick(data,seconds)，异步源把队列中的 obs_source_frame 上传为 GPU 纹理，转场推进进度。它用 profile_start(tick_sources_name) 包裹以统计耗时，位于 obs-video.c 开头。","s":"libobs/obs-video.c:32"},
+    {"q":"output_frames() 阶段做什么？","a":"对每个 obs_core_video_mix 执行 output_frame()：先 render_video() 合成，再按需 download_frame() 回读，最后 output_video_data() 写入帧缓存。它把「渲染、转换、分发」串成一条每帧执行的标准流水线。","s":"libobs/obs-video.c:916"},
+    {"q":"render_displays() 如何呈现预览？","a":"render_displays() 遍历所有 obs_display，对每个 draw_callback 调用后执行 swapchain 呈现。预览窗口由前端把原生句柄交给 obs_display_create()，实际绘制在图形线程完成，避免跨线程直接调用图形 API。","s":"libobs/obs-video.c:94"},
+    {"q":"execute_graphics_tasks() 的作用？","a":"它消费 UI 线程经 obs_queue_task(OBS_TASK_GRAPHICS,...) 投递的任务队列，在图形线程上下文中执行 gs_* 操作，任务带 wait 参数可同步等待。这把跨线程的图形访问收敛到单一线程，保证线程安全。","s":"libobs/obs-video.c:957"},
+    {"q":"video_sleep() 如何控制帧率？","a":"video_sleep(video,p_time,interval_ns) 高精度睡眠到下一帧目标时刻，避免忙等，同时基于实际间隔统计 FPS 与滞后、丢帧。它让图形循环稳定在配置帧率，如 60FPS 约 16.7ms，是节拍控制的关键。","s":"libobs/obs-video.c:805"},
+    {"q":"render_video() 如何递归渲染源树？","a":"render_video(video,raw_active,gpu_active,cur_texture) 从 mix 的 view 输出通道取根源，递归调用各源 video_render。场景、转场、滤镜作为 Source 节点层层展开，最终把画面合成到 render_texture，体现一切皆 Source 的递归树。","s":"libobs/obs-video.c:539"},
+    {"q":"render_texture 是什么？","a":"obs_core_video_mix->render_texture 是每帧合成的离屏渲染目标。源树先绘制到它，再经 render_output_texture() 与格式转换写入 convert_textures。它是渲染路径与编码路径之间的分界点。","s":"libobs/obs-internal.h:345"},
+    {"q":"乒乓纹理 NUM_TEXTURES 如何工作？","a":"定义 NUM_TEXTURES 为 2。output_frame() 本帧渲染到 cur_texture，同时 download_frame() 回读上一帧 prev_texture（cur 为 0 时取 1，否则减一）的 stagesurf，帧末 cur_texture 自增取模，隐藏 GPU 到 CPU 的同步等待。","s":"libobs/obs-video.c:874"},
+    {"q":"stagesurf 回读如何完成？","a":"stage_output_texture() 把转换结果拷入 active_copy_surfaces[cur_texture][channel] 对应的 gs_stagesurf；下一帧 download_frame(video,prev_texture,frame) 通过 gs_stagesurface_map 读取 CPU 内存。异步映射避免阻塞渲染线程。","s":"libobs/obs-video.c:583"},
+    {"q":"copy_surfaces 二维数组的维度？","a":"gs_stagesurf_t *copy_surfaces[NUM_TEXTURES][NUM_CHANNELS]：一维是两帧乒乓，二维是视频平面通道，如 NV12 的 Y、UV。active_copy_surfaces 与之对应记录当前活跃的回读表面，支持多平面帧的完整拷贝。","s":"libobs/obs-internal.h:339"},
+    {"q":"RGBA 如何转换为 NV12？","a":"render_convert_texture() 使用 obs->video.conversion_effect，把 render_texture 作为纹理输入，按 conversion_techs[] 分平面渲染：[0] 生成 Y 平面、[1] 生成 UV 平面写入 convert_textures[0..1]，color_vec0/1 承载色彩矩阵行。","s":"libobs/obs-video.c:344"},
+    {"q":"I420 转换与 NV12 有何不同？","a":"I420 有三个平面 Y、U、V，NV12 只有两个 Y 与交错 UV。render_convert_texture() 通过 convert_textures[2] 是否存在判断：三平面时对 [2] 再执行一次 render_convert_plane()，用 color_vec2 生成第三个平面，逻辑统一。","s":"libobs/obs-video.c:387"},
+    {"q":"P010 与 using_p010_tex 标志？","a":"obs_core_video_mix->using_p010_tex、using_nv12_tex 标记当前使用 10 位或 8 位平面纹理格式。P010 配合 HDR 与 Rec.2020 输出，转换走同样的分平面 effect，但目标纹理为 16 位，从而保留高位精度。","s":"libobs/obs-internal.h:351"},
+    {"q":"color_matrix 色彩矩阵如何应用？","a":"render_convert_texture() 从 video->color_matrix[0..11] 取出三组 vec4 赋给 color_vec0/1/2，effect 据此把线性 RGB 转为目标 YUV 色彩空间。render_space 字段记录工作色彩空间，支撑 SDR 与 HDR 的正确映射。","s":"libobs/obs-video.c:360"},
+    {"q":"HDR 相关参数有哪些？","a":"hdr_nominal_peak_level、obs_get_video_sdr_white_level() 与 sdr_white_nits_over_maximum、hdr_lw uniform 共同决定 HDR 到 SDR 或 HDR 输出的亮度映射。render_convert_texture() 把它们传给 effect，保证高动态范围内容正确转换。","s":"libobs/obs-video.c:368"},
+    {"q":"convert_textures 与 encode 变体区别？","a":"convert_textures[NUM_CHANNELS] 服务常规回读路径；convert_textures_encode[] 与 copy_surfaces_encode[] 专供编码优化路径，Windows 下可让编码器直接消费转换纹理。两套并存以兼顾不同输出后端的性能需求。","s":"libobs/obs-internal.h:340"},
+    {"q":"帧缓存 MAX_CACHE_SIZE 是多少？","a":"media-io/video-io.c 定义 MAX_CACHE_SIZE 为 16。struct cached_frame_info cache[MAX_CACHE_SIZE] 构成环形队列，init_cache() 用 info.cache_size（上限 16）初始化各 video_frame，available_frames 记录可用槽位数量。","s":"libobs/media-io/video-io.c:35"},
+    {"q":"队列满时如何处理？","a":"video_output_lock_frame() 发现 available_frames 为 0 时不分配新槽，而是把 count 与 skipped 累加到 cache[last_added] 并返回 false，相当于沿用上一帧并记 skipped，避免阻塞渲染线程，代价是编码器看到重复帧。","s":"libobs/media-io/video-io.c:521"},
+    {"q":"video_output_lock_frame/unlock_frame 流程？","a":"lock_frame() 在 data_mutex 内推进 last_added、写入 timestamp/count/skipped 并 memcpy 出 frame 供填充；unlock_frame() 递减 available_frames 并 os_sem_post(update_semaphore) 唤醒视频 IO 线程，成对操作保证环形缓冲一致。","s":"libobs/media-io/video-io.c:509"},
+    {"q":"video_output_cur_frame() 做什么？","a":"视频 IO 线程调用它从 cache[first_added] 取帧，经回调分发给 raw 输出与编码器，随后推进 first_added、回补 available_frames。它是生产者图形线程与消费者 IO 线程模型的消费端入口。","s":"libobs/media-io/video-io.c:126"},
+    {"q":"video_thread 如何被唤醒？","a":"video_thread() 在 os_sem_wait(update_semaphore) 上阻塞；图形线程 unlock_frame 时 post 信号量后它醒来循环 video_output_cur_frame() 直到无可用帧或 stop。事件驱动避免轮询，显著降低 CPU 占用。","s":"libobs/media-io/video-io.c:199"},
+    {"q":"skipped 字段用途？","a":"struct cached_frame_info 的 skipped 记录因队列满而合并到当前帧的丢失帧数，count 为累计计数。编码器收到 skipped 大于 0 可知前面跳过了帧，用于时间戳补偿与丢帧统计，是音画同步与统计的数据来源。","s":"libobs/media-io/video-io.c:37"},
+    {"q":"GPU 编码零拷贝旁路如何实现？","a":"当 gpu_encoder_active 时，render_video 走 convert_textures_encode/copy_surfaces_encode 路径，把纹理指针入队 gpu_encoder_queue 并 post gpu_encode_semaphore。独立 gpu_encode_thread 直接把纹理交给 NVENC，绕过 CPU 回读降低延迟。","s":"libobs/obs-internal.h:363"},
+    {"q":"obs_core_video_mix 是什么？","a":"33.x 每个画布对应一个 obs_core_video_mix，持有 view、render_texture、convert_textures、copy_surfaces、video（video_t）、ovi、gpu_encoder_queue 等，把一路合成的渲染、转换、回读、编码资源封装在一起，支撑多画布独立分辨率。","s":"libobs/obs-internal.h:335"},
+    {"q":"source-profiler 如何统计各源开销？","a":"util/source-profiler.c 提供逐源计时，obs-video.c 用 profile_start/end 包裹 render_video、download_frame、tick_sources、render_displays 等阶段，输出各源及阶段耗时与 GPU 计时，开发者可据此定位性能瓶颈。","s":"libobs/obs-video.c:864"},
+    {"q":"obs_queue_task() 如何投递图形任务？","a":"obs_queue_task(type,task,param,wait) 把任务封装为 obs_task_info 放入 obs_core_video->tasks 队列，图形线程 execute_graphics_tasks() 取出执行，wait 为真时调用方阻塞等待完成，UI 线程借此安全发起创建纹理等操作。","s":"libobs/obs.c:3317"},
+    {"q":"obs_enter_graphics() 为何必需？","a":"任何线程调用 gs_* 前须 obs_enter_graphics() 进入图形上下文以绑定设备并加锁，结束用 obs_leave_graphics()。它保证后端 API 在正确线程与上下文中执行，graphics.rst 明确要求，避免设备状态竞争。","s":"libobs/obs.c:1808"},
+    {"q":"output_frame() 中 prev_texture 如何计算？","a":"代码逻辑为 prev_texture =（cur_texture==0 ? NUM_TEXTURES-1 : cur_texture-1），即上一帧纹理索引。因为本帧渲染 cur 的同时只能安全回读已完成的 prev，形成一帧延迟的乒乓流水线以隐藏同步开销。","s":"libobs/obs-video.c:874"},
+    {"q":"render_convert_plane() 的绘制方式？","a":"它对指定 effect technique 逐 pass 执行 gs_technique_begin_pass()，用 gs_draw(GS_TRIS,0,3) 画一个覆盖全屏的大三角形，再 end_pass、end_technique。单三角形覆盖比四边形少一次光栅化接缝，是全屏后处理的常用技巧。","s":"libobs/obs-video.c:324"},
+    {"q":"texture_converted/textures_copied 标志？","a":"render_convert_texture() 结束置 video->texture_converted 为真，stage_output_texture() 设置 textures_copied[cur_texture]。它们作为状态机标记，确保每帧的渲染、转换、拷贝各阶段只执行一次且按顺序推进。","s":"libobs/obs-video.c:401"},
+    {"q":"tick_sources 中异步帧如何上屏？","a":"异步源把 obs_source_frame 入队后，video_tick 回调将其上传为 GPU 纹理 obs_source::async_textures。这样采集线程与图形线程解耦：采集只管产出帧，图形线程按帧节拍消费，避免跨线程直接绘制。","s":"docs-analysis/01-架构设计.md §4"},
+    {"q":"vframe_info_buffer 两个队列用处？","a":"obs_core_video_mix 有 vframe_info_buffer 与 vframe_info_buffer_gpu 两个 deque，分别缓存普通回读帧与 GPU 直传帧的元信息，让一帧内的多路输出共享同一次渲染结果，避免重复转换或回读。","s":"libobs/obs-internal.h:353"},
+    {"q":"output_video_data() 位于何处？","a":"output_frames() 内 output_frame() 完成渲染与回读后调用它，把 video_data 交给 video_output_lock_frame() 填入帧缓存。它是图形线程与视频 IO 线程之间的交接点，实现线程间只传数据不传调用的设计原则。","s":"libobs/obs-video.c:916"},
+    {"q":"obs_graphics_thread_loop_autorelease 作用？","a":"图形线程入口 while 循环先用 obs_graphics_thread_loop_autorelease(&context) 再 obs_graphics_thread_loop(&context)，前者在每次迭代建立 autorelease 池，及时释放 Objective-C 与 Cocoa 临时对象，防止 macOS 上内存堆积。","s":"libobs/obs-video.c:1188"},
+    {"q":"基准分辨率 base_width/base_height 如何用？","a":"obs_video_info 的 base 是源树渲染分辨率，output 是输出分辨率。render_output_texture() 用 1/base_width、1/base_height 作为 bres_i uniform，把纹理坐标归一化，从而在缩小输出时正确采样。","s":"libobs/obs-video.c:300"},
+    {"q":"Canvas 视频混合器如何支撑多画布？","a":"33.x 引入 obs_canvas，每个持有 obs_view（64 通道）与独立 obs_core_video_mix。obs->video.mixes 数组管理多个 mix，图形线程遍历各 mix 输出。主画布 main_canvas 全程存在，其余可按需增删。","s":"docs-analysis/01-架构设计.md §2"},
+    {"q":"raw_active 与 gpu_encoder_active 区别？","a":"obs_core_video_mix 用 volatile long 记录两类活跃计数：raw_active 表示有 raw 输出或 CPU 编码器需要回读帧，gpu_encoder_active 表示有 GPU 编码器需要纹理。update_active_states() 据此决定走哪条转换与分发路径。","s":"libobs/obs-internal.h:357"},
+    {"q":"profile_start/end 如何嵌入帧循环？","a":"源码为 render_video、download_frame 定义 static const char* 名称，在调用前后 profile_start(name)、profile_end(name) 包裹，既服务于 source-profiler，也给 obs_graphics_thread_loop 各阶段打点，形成可观测的性能数据。","s":"libobs/obs-video.c:883"},
+    {"q":"render_output_texture() 何时启用 sRGB？","a":"它在绘制输出纹理时调用 gs_enable_framebuffer_srgb(true)，结束后恢复为 false，并用 gs_effect_set_texture_srgb(image,texture) 传入纹理，保证线性工作流下 gamma 正确，配合 conversion_effect 完成色彩空间转换。","s":"libobs/obs-video.c:307"},
+    {"q":"gs_texrender 在视频管线中的角色？","a":"gs_texrender 提供可重置的离屏渲染目标，通过 gs_texrender_create/reset/begin/end/get_texture 使用。场景项 item_render、转场 transition_texrender、video 的 render_texture 都依赖它，把中间结果保存为纹理供后续合成或转换。","s":"libobs/obs-video.c:478"},
+    {"q":"帧时间戳如何贯穿视频管线？","a":"lock_frame() 把 timestamp 写入 cached_frame_info，video_output_cur_frame() 连同源的 timestamp 与 skipped 一起分发给编码器，编码器据此打 DTS/PTS，输出交织队列按时间戳排序，是音画同步与丢帧统计的统一基准。","s":"libobs/media-io/video-io.c:533"}
+  ]
+};
+window.QA_3 = {
+  "audio": [
+    {"q":"OBS 音频管线采用什么核心模型？","a":"OBS 采用推送缓冲加拉取式树形混音模型。采集线程随时通过 obs_source_output_audio 把样本写入每源 audio_input_buf 环形缓冲；音频线程每 1024 采样拉取一次，对源树做引用快照后自叶向根混音，最终产出 mixes[]。线程解耦为生产者消费者，时间戳贯穿全链路保证音画同步。","s":"docs-analysis/01-架构设计.md §5 音频管线架构"},
+    {"q":"音频线程 audio_thread 如何驱动 audio_callback？","a":"audio_thread 在 media-io/audio-io.c 中按 audio_frames_to_ns 递增节拍，逐级调用 input_and_output；后者先算出 active_mixes 位掩码，清空各 mix 缓冲，再回调 audio->input_cb 即 obs-audio.c 的 audio_callback，传入 prev_time 与 audio_time 作起止时间戳，混音结果经 clamp 后送各输出。","s":"libobs/media-io/audio-io.c:205 / libobs/obs-audio.c:548"},
+    {"q":"音频混音的块大小与节奏是多少？","a":"常量 AUDIO_OUTPUT_FRAMES 为 1024，在 48kHz 下每块约 21.3 毫秒。audio_thread 每次累加 1024 帧，用 os_sleepto_ns_fast 精确睡到下一个 audio_time 时刻再执行 input_and_output。该常量同时决定各源 audio_output_buf 与最终 mixes 的样本容量。","s":"libobs/media-io/audio-io.h:31 / libobs/media-io/audio-io.c:224"},
+    {"q":"audio_callback 如何建立音频源树的渲染顺序？","a":"audio_callback 每次先把 render_order 与 root_nodes 数组 resize 清零，然后遍历 obs->video.mixes 各 view 的输出通道，对每个活跃源调用 obs_source_enum_active_tree 配合 push_audio_tree2 建立快照，最后扫描 first_audio_source 全局链表补充。快照持强引用，避免混音期间源被销毁。","s":"libobs/obs-audio.c:560 / libobs/obs-audio.c:576"},
+    {"q":"混音时如何按时间戳从环形缓冲取样本？","a":"叶子源数据存于 obs_source 的 audio_input_buf[MAX_AUDIO_CHANNELS] 双端队列，audio_output_buf[MAX_AUDIO_MIXES][MAX_AUDIO_CHANNELS] 是混音输出缓冲。mix_audio 先比对 source->audio_ts 与 ts 起止，用 convert_time_to_frames 把纳秒差换算成采样偏移 start_point，再逐 mix 逐声道把样本累加进 mixes。","s":"libobs/obs-audio.c:90 / libobs/obs-internal.h:874"},
+    {"q":"一个源可同时参与几路混音？","a":"常量 MAX_AUDIO_MIXES 为 6，表示一个源最多同时向 6 条混音轨输出。audio_output_data 的 mixes 数组、obs_source 的 audio_output_buf[mix][ch] 以及 audio-io.c 的 audio_mix mixes[MAX_AUDIO_MIXES] 都按此维度定义。音频动作和 audio_mixers 位掩码也用 1<<mix 标记某源是否进入第 mix 路。","s":"libobs/media-io/audio-io.h:28 / libobs/obs-audio.c:107"},
+    {"q":"音量、静音等音频动作如何带时间戳生效？","a":"obs_source 维护 DARRAY(struct audio_action) audio_actions 及 audio_actions_mutex。设置音量、静音、按压通话时，obs_source_set_volume 等把 AUDIO_ACTION_VOL/MUTE/PTT/PTM 连同 os_gettime_ns 时间戳入队。混音前 apply_audio_actions 按样本位置把到点动作应用到 volume、muted 字段，实现采样级精确变化。","s":"libobs/obs-internal.h:764 / libobs/obs-source.c:5273"},
+    {"q":"AUDIO_ACTION_PTT 与 AUDIO_ACTION_PTM 分别表示什么？","a":"两者为按压通话相关：PTT 是 push-to-talk 按下状态，只有按下才出声；PTM 是 push-to-mute 按下状态，按下即静音。source 侧把带 os_gettime_ns 的 audio_action 追加到 audio_actions 队列，字段 set 记录按下或松开，混音时由 apply_audio_action 写入 push_to_talk_pressed 与 push_to_mute_pressed。","s":"libobs/obs-source.c:322 / libobs/obs-source.c:338"},
+    {"q":"同一源在音频树中重复出现如何处理？","a":"push_audio_tree2 用 da_find 在 render_order 中查找源：首次出现则取强引用加入并置 audio_is_duplicated 为 false；若已存在且源是独立音频源，则把它额外放入 root_nodes 并设置 audio_is_duplicated=true。这样该源只在根层混音一次，避免在场景和转场中重复叠加导致音量翻倍。","s":"libobs/obs-audio.c:59 / libobs/obs-internal.h:895"},
+    {"q":"is_individual_audio_source 判定条件是什么？","a":"该函数要求 source->info.type 为 OBS_SOURCE_TYPE_INPUT，output_flags 含 OBS_SOURCE_AUDIO 且不含 OBS_SOURCE_COMPOSITE。满足者被视为独立音频源（如麦克风、桌面音频），才参与 audio_is_duplicated 去重；场景、转场等复合源则由父节点 audio_render 递归混音，不走该判定。","s":"libobs/obs-audio.c:45"},
+    {"q":"父节点（场景/转场）如何混音？","a":"render_order 建立后，audio_callback 对每个源调用 obs_source_audio_render，传入 mixers、channels、sample_rate 与 audio_size。带 info.audio_render 回调的源（场景、转场）在回调里聚合子源输出；转场按进度对两路做交叉淡化，场景按场景项音量叠加，结果写入该源 audio_output_buf 供上层继续累加。","s":"libobs/obs-audio.c:622 / libobs/obs-scene.c:1512"},
+    {"q":"转场时音频如何实现交叉淡化？","a":"转场源持有 transition_sources[2] 两个子源，音频侧同时在两源上混音。转场源自身的 audio_render 按当前转场进度对旧、新场景的 audio_output_buf 施加此消彼长的增益并相加，使声音随画面平滑过渡。时序上 obs_transition_start 记录双源并推进进度，音频每块都读取最新进度。","s":"docs-analysis/03-软件时序图.md §5 场景切换（转场）时序"},
+    {"q":"最终 mixes[] 如何分发给下游？","a":"mix_audio 把所有 root_nodes 累加进 mixes[] 后，audio_callback 设置 *out_ts=ts.start 返回 true。分发并非在 obs-audio.c 内直接编码，而是回到 audio-io.c 的 input_and_output：clamp_audio_output 把样本钳位到 -1.0~1.0，再对每个 mix 调 do_audio_output，经 resample_audio_output 后回调各编码器或 raw 输出。","s":"libobs/obs-audio.c:710 / libobs/media-io/audio-io.c:107"},
+    {"q":"源音频时间戳滞后时如何处理？","a":"当 audio_buffering_maxed 且 source->audio_ts 早于 ts.start，audio_callback 对无 audio_render 的源加锁调 ignore_audio：按 util_mul_div64 计算应丢弃样本数，deque_pop_front 丢弃并推进 audio_ts；若 num_floats 不足则把 audio_pending 置位、audio_ts 归零并清 timing_set，请求源重置时间戳。","s":"libobs/obs-audio.c:122 / libobs/obs-audio.c:645"},
+    {"q":"discard_audio 与 discard_if_stopped 的作用？","a":"混音完成后 discard_audio 对全局音频源按 ts 丢弃已消费样本：若音频 ts 落后过多、缓冲不足，则丢弃 total_floats 对应字节并推进 audio_ts 到 ts.end。discard_if_stopped 比较 last_audio_input_buf_size 与当前 size，若连续两轮相同则判定源停止，清空缓冲并置 pending_stop，防止残留数据反复播放。","s":"libobs/obs-audio.c:223 / libobs/obs-audio.c:182"},
+    {"q":"固定音频缓冲与动态缓冲有何区别？","a":"audio_callback 用 buffered_timestamps 双端队列缓存 ts。若 audio->fixed_buffer 为真，set_fixed_audio_buffering 按 max_buffering_ticks 一次性补齐固定延迟；否则当 min_ts 早于 ts.start，add_audio_buffering 按差值换算帧数追加缓冲，到达 max_buffering_ticks 后打印 Max audio buffering reached 警告，等待期本块返回 false。","s":"libobs/obs-audio.c:320 / libobs/obs-audio.c:361"},
+    {"q":"calc_min_ts 如何防止源缓冲不足？","a":"find_min_ts 遍历 first_audio_source 找出最小 audio_ts 及对应源名；mark_invalid_sources 用 audio_buffer_insufficient 检查每个源在该最小时间戳下是否有足够样本，不足则置 audio_pending。若标记变化则重新 calc_min_ts，确保缓冲对齐基于真正有数据的源，避免把滞后源计入导致输出空洞。","s":"libobs/obs-audio.c:479 / libobs/obs-audio.c:451"},
+    {"q":"音视频同步如何通过 start_ts 实现？","a":"obs_encoder 保存 audio_start_ts 与 video_start_ts，并有 DARRAY paired_encoders 弱引用数组。receive_video 首帧时若存在配对编码器，会等待其 first_received 且 first_raw_ts 不晚于当前帧，否则跳过；send_off_encoder_packet 用 encoder->start_ts/1000 加相对 DTS 减 offset_usec 得到 dts_usec，使音视频从同一时刻起算。","s":"libobs/obs-internal.h:1269 / libobs/obs-encoder.c:1603"},
+    {"q":"监听与采集设备重复时如何避免回声？","a":"should_silence_monitored_source 检测 monitoring_duplicating_source（监听设备与某音频输出采集源同设备）。若该采集源未静音且活跃，则所有正在监听的其它源会被 clear_audio_output_buf 在重叠 mix 上清零，防止同一声音既被采集又被监听形成回声，直到采集源被静音为止。","s":"libobs/obs-audio.c:510 / libobs/obs-audio.c:528"},
+    {"q":"audio_callback 中音频任务如何执行？","a":"混音收尾时 release_audio_sources 释放本轮 render_order 持有的强引用，随后 execute_audio_tasks 在 audio->task_mutex 保护下循环从 audio->tasks 双端队列取 obs_task_info，解锁后调用 task(param) 再上锁，逐个执行 UI 等线程投递到音频线程的任务，保证任务在音频上下文串行执行。","s":"libobs/obs-audio.c:487 / libobs/obs-audio.c:493"},
+    {"q":"audio_output_data 结构怎样组织多路混音？","a":"struct audio_output_data 含 data[MAX_AUDIO_CHANNELS] 指针数组，每个元素指向一路声道的 float 样本缓冲。audio-io.c 的 input_and_output 在栈上声明 data[MAX_AUDIO_MIXES]，把 data[mix_idx].data[i] 指向对应 audio_mix 的 buffer[i]，audio_callback 据此写回结果，实现 6 路乘多声道的矩阵式输出。","s":"libobs/media-io/audio-io.c:160 / libobs/obs-internal.h:1311"},
+    {"q":"音频源滤镜链在何时处理？","a":"采集源通过 obs_source_output_audio 输入音频，在写入 audio_input_buf 之前先经过源的音频滤镜链 filter_audio 同步处理，再按需重采样与声道混洗。音频线程拉取时读到的已是滤镜后的样本，因此滤镜对混音和编码一致生效；场景项音量则在 apply_scene_item_audio_actions 中按时间戳施加。","s":"docs-analysis/01-架构设计.md §5 音频管线架构 / libobs/obs-scene.c:1512"},
+    {"q":"音量动作在场景项上如何生效？","a":"obs_scene_item 也维护 DARRAY(struct item_action) audio_actions。设置场景项音量或静音时把带时间戳的 item_action 入队；混音路径上 process_all_audio_actions 检查队列，apply_scene_item_audio_actions 按 ts 与 sample_rate 定位样本位置，对该场景项贡献的 buf 分段施加增益，使场景项音量变化精确到采样点。","s":"libobs/obs-scene.c:1586 / libobs/obs-scene.h:87"},
+    {"q":"audio_pending 标志意味着什么？","a":"audio_pending 表示源当前无可用音频样本或时间戳尚未建立，audio_callback 在混音阶段会跳过 pending 源；ignore_audio、audio_buffer_insufficient、discard_audio 都会设置或清除它。当源重新产出数据且时间戳对齐后该标志清除，源重新参与 mix_audio，实现短暂静音过渡而非播放错位数据。","s":"libobs/obs-audio.c:677 / libobs/obs-audio.c:174"},
+    {"q":"audio_callback 的返回值代表什么？","a":"audio_callback 末尾在 buffering_wait_ticks 非零时递减计数并返回 false，表示本块处于缓冲等待期不应输出；否则执行 execute_audio_tasks 后返回 true，通知 audio-io.c 继续 clamp 与分发。out_ts 始终写回当前 ts.start，作为本块样本的系统时间戳送给编码器和输出。","s":"libobs/obs-audio.c:710 / libobs/media-io/audio-io.c:193"},
+    {"q":"各路混音如何加锁保护数据？","a":"audio_callback 读 view 通道用 channels_mutex，遍历 obs->video.mixes 用 mixes_mutex，扫描全局音频源用 data->audio_sources_mutex。对单个源，audio_actions 由 audio_actions_mutex 保护，audio_input_buf/audio_output_buf 由 audio_buf_mutex 保护；ignore_audio 与 mix_audio 均在持锁状态下进行，防止采集与音频线程竞态。","s":"libobs/obs-audio.c:576 / libobs/obs-audio.c:680"},
+    {"q":"音频源如何注册到全局音频链表？","a":"带 OBS_SOURCE_AUDIO 的源创建时挂入 obs_core_data 的 first_audio_source 链表，通过 next_audio_source 串联。audio_callback 构建 render_order 时，除遍历 mix 的输出通道树外，还会扫描该链表把未移除的源 push_audio_tree，确保没有绑定输出通道的音频源（如仅在混音器中的麦克风）也能被采集混音。","s":"libobs/obs-audio.c:608"},
+    {"q":"音频通道数与布局在哪里确定？","a":"audio_callback 通过 audio_output_get_channels 与 audio_output_get_sample_rate 从 audio_t 取当前通道数与采样率，作为本轮混音维度。audio-io.c 中 audio_output_open 依据 info->speakers 用 get_audio_channels 计算 channels，is_audio_planar 判定是否平面格式决定 planes，block_size 据此得出每帧字节数。","s":"libobs/obs-audio.c:554 / libobs/media-io/audio-io.c:366"},
+    {"q":"监控复制源如何影响混音缓冲？","a":"audio->monitoring_duplicating_source 指向与监听设备重复的采集源。clear_audio_output_buf 遍历 MAX_AUDIO_MIXES，用位掩码 1<<mix 判断采集源与当前源在该 mix 是否重叠，重叠则把源 audio_output_buf[mix][ch] 整块 memset 为零。该逻辑在 obs_source_audio_render 之后调用，确保静音发生在累加进 mixes 之前。","s":"libobs/obs-audio.c:528 / libobs/obs-audio.c:625"},
+    {"q":"ignore_audio 的舍入误差如何修正？","a":"ignore_audio 丢弃 drop 个样本后用 util_mul_div64(drop, 1e9, sample_rate) 推进 source->audio_ts。若推进后 audio_ts 恰好等于 start_ts-1，则直接校正为 start_ts 消除舍入误差；若 audio_ts 已不小于 start_ts 则说明源追平，返回 true 触发重新 audio_render，保证样本与时间戳严格对齐。","s":"libobs/obs-audio.c:151 / libobs/obs-audio.c:155"},
+    {"q":"convert_time_to_frames 的作用？","a":"convert_time_to_frames 用 util_mul_div64(t, sample_rate, 1000000000ULL) 把纳秒时间差 t 换算为采样帧数，避免浮点误差与溢出。mix_audio、discard_audio、audio_buffer_insufficient 都用它把 source->audio_ts 与当前块 ts 起点的差值换算成 start_point，从而在 1024 长的缓冲内精确定位混音起点。","s":"libobs/obs-audio.c:85"},
+    {"q":"audio_output_get_info 等 getter 提供什么？","a":"audio-io.c 提供一组访问 audio_t 内部信息的接口：audio_output_get_info 返回 audio_output_info，audio_output_get_sample_rate 返回 samples_per_sec，get_channels/get_planes/get_block_size 分别返回通道数、平面数与每帧字节数。audio_callback 和编码器正是通过这些 getter 动态适配当前音频格式，而不直接访问私有结构。","s":"libobs/media-io/audio-io.c:417 / libobs/media-io/audio-io.c:452"},
+    {"q":"audio_actions 队列何时被消费完？","a":"apply_audio_actions 在 audio_actions_mutex 保护下遍历队列，对每个 action 取 timestamp 换算为相对样本的生效位置，只有本块时间覆盖该时间戳才 apply_audio_action 并 da_erase 移除。若队首动作时间未到则保留，等后续音频块再处理，从而让音量曲线在连续多个 1024 采样块上平滑过渡。","s":"libobs/obs-source.c:5291"},
+    {"q":"音频混音为何使用引用快照而非直接遍历？","a":"采集线程可随时创建或销毁源，若混音中直接遍历活动树会因源被释放而悬垂。audio_callback 构建 render_order/root_nodes 时用 obs_source_get_ref 取强引用存入快照，整轮混音基于快照进行，结束时 release_audio_sources 统一释放。这保证多线程下源生命周期安全，且本轮源集合稳定一致。","s":"libobs/obs-audio.c:34 / libobs/obs-audio.c:706"}
+  ],
+  "videoio": [
+    {"q":"视频 IO 线程入口是什么？","a":"video_thread 是 video_output 的核心线程，在 video_output_open 中由 pthread_create 启动。它循环 os_sem_wait(video->update_semaphore) 等待图形线程 post 信号，每次唤醒后在 !video->stop 条件下反复调用 video_output_cur_frame 直到取到完整帧，全程用 profiler 统计耗时，线程名标记为 video-io: video thread。","s":"libobs/media-io/video-io.c:190 / libobs/media-io/video-io.c:259"},
+    {"q":"video_output 结构如何组织帧缓存？","a":"struct video_output 保存 video_output_info、线程与 data_mutex/input_mutex、update_semaphore、frame_time，以及缓存字段 available_frames、first_added、last_added 和 struct cached_frame_info cache[MAX_CACHE_SIZE]。inputs 是 DARRAY(struct video_input) 记录所有消费者；parent 指向父输出，raw_active 与 gpu_refs 分别标记 raw 与 GPU 编码活跃状态。","s":"libobs/media-io/video-io.c:70"},
+    {"q":"视频环形缓存容量与跳帧机制？","a":"MAX_CACHE_SIZE 定义为 16，init_cache 会把 info.cache_size 钳制到该上限并为每帧调用 video_frame_init。video_output_lock_frame 申请缓存时若 available_frames 为 0，则在 video->cache[last_added] 上累加 count 与 skipped 并返回 false，相当于让消费者复用上一帧，这就是编码器跟不上时跳帧的来源。","s":"libobs/media-io/video-io.c:35 / libobs/media-io/video-io.c:509"},
+    {"q":"cached_frame_info 记录什么？","a":"struct cached_frame_info 含 struct video_data frame、int skipped 与 int count。frame 保存一帧的数据指针、行距与 timestamp；count 表示这一帧被锁定的次数，video_output_cur_frame 每服务一次消费者就递减，减到 0 才算消费完成并推进 first_added；skipped 记录因缓存满而跳过的帧数，用于统计编码滞后。","s":"libobs/media-io/video-io.c:37 / libobs/media-io/video-io.c:168"},
+    {"q":"video_output_cur_frame 如何分发帧？","a":"video_output_cur_frame 先取 cache[first_added] 作为 frame_info，在 input_mutex 下遍历 video->inputs：用 frame_rate_divisor_counter 判断是否抽帧，必要时 scale_video_output 缩放，再调用 input->callback 把帧交给编码器或 raw 输出。随后在 data_mutex 下把 frame.timestamp 加 video->frame_time、递减 count，完成时推进 first_added。","s":"libobs/media-io/video-io.c:126"},
+    {"q":"frame_rate_divisor 如何实现降帧输出？","a":"video_input 保存 frame_rate_divisor 与 frame_rate_divisor_counter。video_output_cur_frame 每次把 counter 自增，若达到 divisor 则归零；只有 skip 为 0 才真正回调消费者，实现按主合成帧率的整数分之一输出，如 60FPS 配 divisor=2 得 30FPS。用显式计数器而非取余，保证同时启动的输入对齐到同一帧。","s":"libobs/media-io/video-io.c:151 / libobs/media-io/video-io.c:49"},
+    {"q":"raw 视频与编码器如何注册到 video_output？","a":"video_output_connect 与 video_output_connect2 在 get_root 后的根输出上按 callback 与 param 去重注册一个 video_input，connect2 额外接受 frame_rate_divisor。首个输入加入时设置 raw_active=true 并 reset_frames，video_input_init 依据 conversion 与 video->info 差异创建 scaler。编码器的 add_connection 正是通过它注册 receive_video。","s":"libobs/media-io/video-io.c:398 / libobs/obs.c:3111"},
+    {"q":"scale_video_output 与 swscale 的关系？","a":"scale_video_output 在 input->scaler 非空时，轮转 MAX_CONVERT_BUFFERS=3 个 video_frame 作目标，调用 video_scaler_scale 把源 data/linesize 转换到目标缓冲，再把 data 与 linesize 指回转换结果。video_scaler 底层由 video-scaler-ffmpeg.c 用 FFmpeg swscale 实现，负责分辨率、像素格式与色彩空间转换，失败打印 Could not scale frame。","s":"libobs/media-io/video-io.c:98 / docs-analysis/02-模块划分.md §2.3"},
+    {"q":"video_input_init 何时创建 scaler？","a":"video_input_init 比较 conversion 的宽高、format、range、colorspace 与 video->info 是否一致；只要一项不同，就构造 from 的 video_scale_info 并以 VIDEO_SCALE_FAST_BILINEAR 调 video_scaler_create，同时为 MAX_CONVERT_BUFFERS 个缓冲调 video_frame_init。match_range 与 match_space/collapse_space 宽松比较色彩空间，避免 SRGB 与 709 等价情况误触发。","s":"libobs/media-io/video-io.c:340 / libobs/media-io/video-io.c:319"},
+    {"q":"video_frame 如何分配对齐内存？","a":"video_frame_init 按给定 format、width、height 为各平面分配带行对齐的缓冲并计算 linesize，使每行起始满足 SIMD 与 GPU 回读的对齐要求。video_frame_copy 按 format 与高度 cy 把源帧各平面逐行复制到目标，保留对齐步长。video-io 的缓存与 video_input 的转换缓冲都基于这两个函数初始化。","s":"libobs/media-io/video-frame.c:190 / libobs/media-io/video-frame.c:235"},
+    {"q":"format-conversion.c 负责什么？","a":"format-conversion.c 提供像素格式转换工具，供渲染与回读路径把 GPU 纹理解包或打包成 NV12、I420、P010 等目标格式。它与 video-frame 的对齐分配、video-scaler 的缩放配合构成视频输出前的转换链。图形线程把 render_texture 转换后写入 video_output 缓存，视频 IO 线程再按消费者需求用 scaler 二次转换。","s":"docs-analysis/02-模块划分.md §2.3 media-io/"},
+    {"q":"色彩矩阵 video-matrices 的作用？","a":"video-matrices.c 的 video_format_get_parameters 与 video_format_get_parameters_for_format 根据 colorspace、range 与位深调用 video_format_get_parameters_for_bpc，产出 4x4 float matrix 及 range_min/range_max。VIDEO_CS_DEFAULT 或 SRGB 归一到 709，HLG 归一到 2100_PQ，PQ/HLG 用 10 位否则 8 位，供 shader 做 YUV 与 RGB 的正确转换。","s":"libobs/media-io/video-matrices.c:221 / libobs/media-io/video-matrices.c:174"},
+    {"q":"frame_time 如何计算？","a":"video_output_open 用 util_mul_div64(1000000000ULL, info->fps_den, info->fps_num) 计算每帧纳秒间隔存入 frame_time。video_output_cur_frame 每服务完一次该缓存帧就把 frame.timestamp 加上 frame_time，保证分发给编码器的时间戳按帧率单调递增，video_output_get_frame_time 可供外部读取该值。","s":"libobs/media-io/video-io.c:251 / libobs/media-io/video-io.c:168"},
+    {"q":"跳帧如何统计？","a":"video_output 用 volatile long skipped_frames 与 total_frames 计数。video_output_cur_frame 发现 frame_info->skipped 大于零时递减并 os_atomic_inc_long skipped_frames；video_thread 每次循环递增 total_frames。log_skipped 在断开最后一个输入时打印 skipped/total 百分比，即停止推流时看到的 due to encoding lag 提示。","s":"libobs/media-io/video-io.c:178 / libobs/media-io/video-io.c:451"},
+    {"q":"video_output_unlock_frame 做了什么？","a":"图形线程写完帧数据后调用 video_output_unlock_frame，它在 data_mutex 下把 available_frames 递减，并用 os_sem_post(video->update_semaphore) 唤醒 video_thread 消费该帧。与 video_output_lock_frame 配对构成生产者消费者协议：lock 占用缓存槽并写入 timestamp/count，unlock 提交并通知，形成帧驱动节拍。","s":"libobs/media-io/video-io.c:547 / libobs/media-io/video-io.c:509"},
+    {"q":"get_root 与 parent 输出的用途？","a":"video_output_create_with_frame_rate_divisor 复制父 video_t 并置 parent，把 fps_den 乘以 divisor，得到低帧率子输出而不启动新线程。get_root/get_const_root 沿 parent 链回溯到根输出，使 connect、lock、统计等操作都落在同一套真实缓存与线程上；子对象只拥有独立的 fps 设置。","s":"libobs/media-io/video-io.c:660 / libobs/media-io/video-io.c:385"},
+    {"q":"media-remux 在回放缓冲中做什么？","a":"media-remux.c 用 FFmpeg 实现不重新编码的封装转换。media_remux_job_create 打开输入、探测流并初始化输出上下文，process_packets 循环 av_read_frame 把包直接 av_interleaved_write_frame 写出，media_remux_job_process 负责打开输出与 av_write_trailer。OBS 用它把录制文件在回放缓冲场景下快速转成适合流式播放的容器。","s":"libobs/media-io/media-remux.c:136 / libobs/media-io/media-remux.c:177"},
+    {"q":"video_output_active 与 raw_active 如何判断？","a":"video_output_connect 加入首个输入时 os_atomic_set_bool(&video->raw_active, true)，disconnect 移除最后一个输入时置回 false 并 log_skipped。video_output_active 返回根输出的 raw_active。gpu_refs 另由 video_output_inc_texture_encoders 维护，使纯 GPU 编码路径即便没有 raw 输入也能正确统计帧数与活跃状态。","s":"libobs/media-io/video-io.c:436 / libobs/media-io/video-io.c:632"},
+    {"q":"视频帧时间戳与音视频对齐如何配合？","a":"video_output_cur_frame 给每个缓存帧递增 frame_time 维持单调 DTS；图形线程写缓存时用 obs_video_info 的 fps 换算时间戳。编码器 receive_video 首帧把 frame->timestamp 记为 start_ts，send_off_encoder_packet 据此换算 dts_usec，paired_encoders 再等待音频 start_ts，使视频首包与音频首包在输出交织队列中对齐。","s":"libobs/media-io/video-io.c:168 / libobs/obs-encoder.c:1630"},
+    {"q":"video_output_open 如何校验与初始化？","a":"valid_video_params 要求 width、height、fps_num、fps_den 均非零，否则返回 VIDEO_OUTPUT_INVALIDPARAM。随后 bzalloc 分配结构、memcpy info、计算 frame_time，递归初始化 data_mutex 与 input_mutex，os_sem_init 建信号量，pthread_create 启动 video_thread，最后 init_cache 分配并初始化所有缓存帧，成功返回 VIDEO_OUTPUT_SUCCESS。","s":"libobs/media-io/video-io.c:219 / libobs/media-io/video-io.c:239"}
+  ],
+  "audioio": [
+    {"q":"audio-io.c 的线程节拍如何控制？","a":"audio_thread 以 start_time 为基准，samples 每轮累加 AUDIO_OUTPUT_FRAMES，audio_time 等于 start_time 加 audio_frames_to_ns(rate, samples)。它用 os_sleepto_ns_fast 睡到该绝对时刻再调 input_and_output，从而以固定 1024 采样块、极小漂移运行；stop_event 用 os_event_try 检查，收到信号即退出。","s":"libobs/media-io/audio-io.c:205 / libobs/media-io/audio-io.c:223"},
+    {"q":"Windows 下音频线程如何提升调度优先级？","a":"在 _WIN32 分支，audio_thread 开头调用 AvSetMmThreadCharacteristics(L\"Audio\", &unused) 将线程纳入多媒体类别调度，降低音频卡顿概率；退出前用 AvRevertMmThreadCharacteristics 还原。同时 os_set_thread_name 标记为 audio-io: audio thread，并用 profile_store_name 注册分析器名称便于性能统计。","s":"libobs/media-io/audio-io.c:207 / libobs/media-io/audio-io.c:239"},
+    {"q":"input_and_output 的处理流程？","a":"input_and_output 先算 bytes 等于 AUDIO_OUTPUT_FRAMES 乘 block_size，在 input_mutex 下扫描各 mix 的 inputs.num 生成 active_mixes 位掩码，然后 memset 清空所有 mix->buffer 并把 data[mix].data[i] 指向缓冲。接着调 input_cb 即 audio_callback 填混音数据，成功后 clamp_audio_output 钳位，最后对每个 mix 调 do_audio_output 分发。","s":"libobs/media-io/audio-io.c:160"},
+    {"q":"clamp_audio_output 如何防止削波？","a":"clamp_audio_output 对所有活跃 mix 的每个平面，先把数据 memcpy 到 buffer_unclamped 保留未钳位副本，再逐样本把 NaN 替换为零、大于 1.0 截到 1.0、小于 -1.0 截到 -1.0。allow_clipping 为真的消费者在 do_audio_output 中会读取 buffer_unclamped，从而在需要时获得原始动态范围。","s":"libobs/media-io/audio-io.c:132 / libobs/media-io/audio-io.c:117"},
+    {"q":"do_audio_output 如何把混音结果送给消费者？","a":"do_audio_output 对指定 mix 在 input_mutex 下逆序遍历 mix->inputs，根据 input->conversion.allow_clipping 选择 buffer 或 buffer_unclamped，填充 audio_data 的 data、frames、timestamp，先 resample_audio_output 重采样，成功再调用 input->callback(param, mix_idx, &data)。逆序遍历便于安全处理回调中可能的注销操作。","s":"libobs/media-io/audio-io.c:107"},
+    {"q":"audio_output_open 初始化哪些资源？","a":"audio_output_open 先用 valid_audio_params 校验 format、name、samples_per_sec 与 speakers，bzalloc 后 memcpy info，用 get_audio_channels 算 channels、is_audio_planar 决定 planes 并算 block_size。随后初始化递归 input_mutex、os_event_init 建 stop_event、pthread_create 启动 audio_thread，置 initialized 返回 AUDIO_OUTPUT_SUCCESS，失败走 fail 标签回滚。","s":"libobs/media-io/audio-io.c:353 / libobs/media-io/audio-io.c:348"},
+    {"q":"audio_output_connect 如何注册消费者？","a":"audio_output_connect 校验 mi 小于 MAX_AUDIO_MIXES，在 input_mutex 下用 audio_get_input_idx 按 callback 与 param 去重。未注册则构造 audio_input，conversion 为空时用 audio->info 的 format/speakers/samples_per_sec 填充，未知值再回退到输出格式，然后 audio_input_init 建重采样器并 da_push_back 进 mix->inputs。","s":"libobs/media-io/audio-io.c:289 / libobs/media-io/audio-io.c:249"},
+    {"q":"audio_input_init 何时跳过重采样器？","a":"audio_input_init 比较 input->conversion 与 audio->info 的 format、samples_per_sec、speakers；三者全一致则 resampler 置 NULL 直接透传，否则构造 from 与 to 的 resample_info 调 audio_resampler_create。创建失败打印 Failed to create resampler。编码器 connect 时指定自身格式，从而按需触发采样率与声道转换。","s":"libobs/media-io/audio-io.c:263"},
+    {"q":"audio-resampler-ffmpeg 如何封装 swresample？","a":"audio-resampler-ffmpeg.c 中 struct audio_resampler 内嵌 struct SwrContext *context。audio_resampler_create 用 swr_alloc_set_opts 或新版 swr_alloc_set_opts2 设置输入输出布局、格式与采样率，swr_init 初始化；重采样时 swr_convert 输出样本，swr_get_delay 得到延迟并换算为 ts_offset，从输入时间戳中扣除以保持同步。","s":"libobs/media-io/audio-resampler-ffmpeg.c:25 / libobs/media-io/audio-resampler-ffmpeg.c:100"},
+    {"q":"声道布局与单声道上混如何处理？","a":"重采样器记录 output_ch 与 output_layout。当目标是多声道而输入为单声道时，audio_resampler_create 调 swr_set_matrix 设置上混矩阵 matrix[rs->output_ch - 1]，把单声道复制到各输出声道；设置失败仅打印调试日志。FFmpeg 版本差异通过 LIBSWRESAMPLE_VERSION_INT 条件编译兼容新旧 API。","s":"libobs/media-io/audio-resampler-ffmpeg.c:155 / libobs/media-io/audio-resampler-ffmpeg.c:114"},
+    {"q":"采样率转换如何保持时间戳正确？","a":"resample_audio_output 调 audio_resampler_resample 得到 output 平面、frames 与 offset，把 data->data[i] 指向输出缓冲、更新 frames，并令 data->timestamp 减去 offset。这是因为 swresample 内部滤波与延迟会产生输出样本的起始偏移，扣除 offset 后送编码器的时间戳才与采样内容一致，避免音画漂移。","s":"libobs/media-io/audio-io.c:84 / libobs/media-io/audio-resampler-ffmpeg.c:194"},
+    {"q":"audio_monitor 有哪些平台实现？","a":"libobs/audio-monitoring 下按平台分目录：win32/wasapi-output.c 用 WASAPI，osx/coreaudio-output.c 用 CoreAudio，pulse/pulseaudio-output.c 用 PulseAudio，另有 null/null-audio-monitoring.c 空实现。各平台导出 audio_monitor_create 与 audio_monitor_destroy、obs_audio_monitoring_available 及 obs_enum_audio_monitoring_devices，由 obs-source.c 在源开启监听时创建。","s":"libobs/audio-monitoring/win32/wasapi-output.c:410 / libobs/obs-source.c:5630"},
+    {"q":"监听设备如何设置与重置？","a":"obs.c 提供 obs_set_audio_monitoring_device 与 obs_get_audio_monitoring_device，设置时先判断 obs_audio_monitoring_available，再记录 name 与 id 并调 obs_reset_audio_monitoring 重建所有源的 monitor。源侧切换 monitoring_type 时 signal_handler_signal 发出 audio_monitoring 信号，并按需 audio_monitor_create 或 audio_monitor_destroy。","s":"libobs/obs.c:2991 / libobs/obs.c:2964"},
+    {"q":"缓冲下溢或数据不足如何处理？","a":"obs-audio.c 的 audio_buffer_insufficient 若源 audio_input_buf[0].size 小于本块所需字节，就置 source->audio_pending=true 并返回真，触发 calc_min_ts 重新计算最小时间戳并追加音频缓冲。这样偶发采集抖动通过增加缓冲吸收，而非输出静音空洞；达到 max_buffering_ticks 后才走 ignore_audio 丢样本追平。","s":"libobs/obs-audio.c:424 / libobs/obs-audio.c:466"},
+    {"q":"audio_output_active 如何判定？","a":"audio_output_active 遍历 MAX_AUDIO_MIXES 个 audio_mix，只要任一 mix->inputs.num 非零即返回 true，表示还有消费者（编码器或输出）连接。audio_output_disconnect 按 callback 与 param 找到 input，audio_input_free 释放 resampler 后 da_erase，最后一个消费者离开后音频线程空闲但仍按节拍运行。","s":"libobs/media-io/audio-io.c:422 / libobs/media-io/audio-io.c:331"},
+    {"q":"struct audio_mix 的双缓冲为何设计？","a":"struct audio_mix 同时有 float buffer[MAX_AUDIO_CHANNELS][AUDIO_OUTPUT_FRAMES] 与 buffer_unclamped。前者用于钳位后的常规输出，后者保存未经 -1~1 限制的原始混音。clamp_audio_output 每次把 buffer 复制到 buffer_unclamped 再钳位 buffer，允许支持 clipping 的消费者取原始动态范围，兼顾两种需求且只需一次混音。","s":"libobs/media-io/audio-io.c:59 / libobs/media-io/audio-io.c:147"},
+    {"q":"block_size 与 planes 如何计算？","a":"audio_output_open 中 block_size 等于 (planar ? 1 : channels) 乘 get_audio_bytes_per_channel(info->format)，即每帧每平面的字节数；planes 在平面格式为通道数，否则为 1。input_and_output 用 bytes 等于 AUDIO_OUTPUT_FRAMES 乘 block_size 确定 memset 与钳位范围，do_audio_output 按 planes 循环填充每个平面指针。","s":"libobs/media-io/audio-io.c:370 / libobs/media-io/audio-io.c:162"},
+    {"q":"audio_output_close 如何安全关闭线程？","a":"audio_output_close 若 initialized 为真则 os_event_signal(stop_event) 通知 audio_thread 退出，pthread_join 等待线程结束后销毁 stop_event 与 input_mutex。随后遍历所有 mix 对每个 input 调 audio_input_free 释放重采样器、da_free inputs，最后 bfree(audio)。先停线程再释放资源，避免音频线程访问已销毁数据。","s":"libobs/media-io/audio-io.c:392 / libobs/media-io/audio-io.c:54"}
+  ],
+  "encoder": [
+    {"q":"obs_encoder_info 接口包含哪些核心成员？","a":"struct obs_encoder_info 是纯 C 虚表，含 type（AUDIO/VIDEO）、codec 标识、get_name/create/destroy、encode(data, frame, packet, received)、get_frame_size，以及可选 get_video_info/get_audio_info、get_sei_data、encode_texture2 等。插件实现该结构并调 obs_register_encoder 注册，核心按 id 查找实例化，实现接口与实现解耦。","s":"libobs/obs-encoder.h:198 / docs-analysis/04-类图设计.md §2 插件接口"},
+    {"q":"视频编码器与音频编码器如何区分？","a":"enum obs_encoder_type 只有 OBS_ENCODER_AUDIO 与 OBS_ENCODER_VIDEO 两值，存于 info.type。视频编码器处理 video_data、设置 timebase 与关键帧，音频编码器按 mixer_idx 连接某路 audio_output。add_connection 依据类型分别走 audio_output_connect 或 start_raw_video/start_gpu_encode，remove_connection 对应注销。","s":"libobs/obs-encoder.h:44 / libobs/obs-encoder.c:371"},
+    {"q":"如何创建编码器实例？","a":"公开 API 为 obs_video_encoder_create 与 obs_audio_encoder_create，按 id 从 obs_core 的 encoder_types 注册表查找 info，分配 obs_encoder 并内嵌 obs_context_data，设置 settings 与 codec。还有 obs_encoder_create_rerouted 用已有编码器私有数据和新 id 创建别名实例。销毁由 obs_encoder_destroy 释放 outputs、callbacks、私有 data 与上下文。","s":"libobs/obs.h:2271 / libobs/obs-encoder.c:462"},
+    {"q":"obs_encoder_initialize 做什么？","a":"obs_encoder_initialize 在 init_mutex 保护下调 obs_encoder_initialize_internal。后者要求 encoder->media 已设置，否则打印 has no media set 错误；随后调 info.create 创建插件私有 data，初始化 timebase、planes、first_received 等状态并返回成功标志。输出启动前由 obs_output 负责先 set_video/set_audio 再 initialize。","s":"libobs/obs-encoder.c:727 / libobs/obs-encoder.c:673"},
+    {"q":"编码器如何绑定到 video_t 或 audio_t？","a":"obs_encoder_set_video 与 obs_encoder_set_audio 把 encoder->media 指向 video_t 或 audio_t。视频侧还可 obs_encoder_set_scaled_size、set_gpu_scale_type、set_frame_rate_divisor、set_preferred_video_format/range/colorspace 来配置。media 指针即 obs-internal.h 注释中的 video_t* 或 audio_t*，决定后续 add_connection 走向。","s":"libobs/obs-encoder.c:1183 / libobs/obs.h:2321"},
+    {"q":"obs_encoder_start 如何注册输出回调？","a":"obs_encoder_start(encoder, new_packet, param) 在 init_mutex 下调 start_internal：构造 encoder_callback{false, new_packet, param}，在 callbacks_mutex 下去重后追加到 callbacks 数组。只有第一个回调加入时才 reset pause、清 cur_pts 并 add_connection，真正把编码器接入视频或音频管线，避免多输出重复连接。","s":"libobs/obs-encoder.c:836 / libobs/obs-encoder.c:809"},
+    {"q":"obs_encoder_stop 如何断开？","a":"obs_encoder_stop 按 new_packet 与 param 用 get_callback_idx 找到并 erase 回调；当 callbacks 变空即最后一个消费者离开时，清 encoder_packet_times，调 remove_connection(true) 注销管线并 shutdown。若编码器属于 encoder_group 且 destroy_on_stop 且 num_encoders_started 归零，还会 obs_encoder_group_actually_destroy 延迟销毁以规避竞态。","s":"libobs/obs-encoder.c:848 / libobs/obs-encoder.c:875"},
+    {"q":"add_connection 如何把编码器接入管线？","a":"音频编码器调 audio_output_connect(media, mixer_idx, &audio_info, receive_audio, encoder)；视频编码器若 gpu_encode_available 为真则 start_gpu_encode，否则 start_raw_video(media, &info, frame_rate_divisor, receive_video, encoder)。随后更新 encoder_group 的 frame_rate_divisors_lcm 与 num_encoders_started，组就绪时 add_ready_encoder_group，最后 set_encoder_active(true)。","s":"libobs/obs-encoder.c:369"},
+    {"q":"receive_video 回调如何准备编码帧？","a":"receive_video 是 video_output 的消费者回调。它先等待编码器组 start_timestamp 对齐和配对音频的首帧与 first_raw_ts，再经 video_pause_check 与 handle_encoder_group_reconfigure_request。随后把 video_data 的 data/linesize 拷入 encoder_frame，若 start_ts 未设则记下 frame->timestamp，pts 取 cur_pts，调 do_encode 成功后按 timebase_num 乘 divisor 递增 cur_pts。","s":"libobs/obs-encoder.c:1586 / libobs/obs-encoder.c:1630"},
+    {"q":"receive_audio 如何处理音频块？","a":"receive_audio 作为 audio_output_connect 的回调接收某 mix 的 audio_data，按 planes 把样本 push_back 到 encoder->audio_input_buffer 循环队列。累积够 encoder->frame_size 帧后组装 encoder_frame 调 do_encode，并把已消费样本从队列前端移除。它按编码器采样率与时基工作，由音频线程节拍驱动，与视频编码共享同一 do_encode 出口。","s":"libobs/obs-encoder.c:1837 / libobs/obs-encoder.c:1649"},
+    {"q":"do_encode 的核心流程是什么？","a":"do_encode 先处理 reconfigure_requested 调 info.update，构造 encoder_packet 填入 timebase_num/den 与 encoder 指针。编码前记录 fer_ts，调 info.encode(data, frame, &pkt, &received) 得 success 与是否产出包。若 frame_cts 非空则把 cts、fer、ferc、pts 压入 encoder_packet_times 供时序统计，最后 send_off_encoder_packet 分发并返回 success。","s":"libobs/obs-encoder.c:1456 / libobs/obs-encoder.c:1483"},
+    {"q":"send_off_encoder_packet 如何修正时间戳？","a":"编码失败时打印错误并 full_stop。收到包时首包记录 offset_usec=packet_dts_usec(pkt)，随后 pkt->dts_usec 等于 encoder->start_ts/1000 加相对 DTS 再减 offset_usec，sys_dts_usec 叠加 pause.ts_offset。视频包还会按 pts 在 encoder_packet_times 中查找并移除对应时序项，最后遍历 callbacks 发给所有输出并累加 encoded_frames。","s":"libobs/obs-encoder.c:1394 / libobs/obs-encoder.c:1410"},
+    {"q":"encoder_packet 结构有哪些关键字段？","a":"struct encoder_packet 含 type（OBS_ENCODER_VIDEO/AUDIO）、keyframe 标志、pts/dts/dts_usec/sys_dts_usec、timebase_num/timebase_den、data 与 size，以及指向 obs_encoder 的指针。obs-encoder.h 还定义 encoder_packet_time 保存 fer/ferc/cts/pts 时序指标，send_off_encoder_packet 把这些时间随包传给输出用于延迟分析。","s":"libobs/obs-encoder.h:108 / libobs/obs-encoder.c:1421"},
+    {"q":"一个编码器如何服务多个输出？","a":"obs_encoder 用 DARRAY(struct encoder_callback) callbacks 记录每对 new_packet/param，并用 outputs 数组持有绑定的 obs_output。obs_encoder_start 每来一个输出追加一个回调，只有首个才真正连接管线；send_off_encoder_packet 遍历所有 callbacks 发送同一编码包，因此编码只做一次即可扇出到推流、录制等多个输出。","s":"libobs/obs-encoder.c:465 / docs-analysis/03-软件时序图.md §3"},
+    {"q":"callbacks 如何去重与索引？","a":"get_callback_idx 在 callbacks_mutex 下遍历 encoder->callbacks，比较 cb->new_packet 与 cb->param 是否同时相等，返回下标或 DARRAY_INVALID。start_internal 用它避免同一输出重复注册，stop 用它定位要删除的回调。以函数指针加参数作为身份的方式，使同一编码器可被多个输出安全共享而互不干扰。","s":"libobs/obs-encoder.c:787 / libobs/obs-encoder.c:821"},
+    {"q":"编码器组 encoder_group 解决什么问题？","a":"struct obs_encoder_group 把多路编码器（如多码率 ABR 或 DBR）绑在一起，使其在同一时间戳启动并重配置。obs_encoder_set_group 关联组，add_connection 累加 num_encoders_started 并计算各 frame_rate_divisor 的最小公倍数 frame_rate_divisors_lcm，达到组大小时 add_ready_encoder_group，从而保证组内关键帧对齐。","s":"libobs/obs-internal.h:1350 / libobs/obs-encoder.c:387"},
+    {"q":"DBR 如何通过组实现同步关键帧重配置？","a":"码率动态变化时 obs_encoder_update 设置 reconfigure_requested；对组而言，add_connection 注释说明 frame_rate_divisors_lcm 给出所有编码器同时有帧的下一个 PTS 边界，DBR 触发的更新必须在该边界重配置，才能让组内产生同步关键帧。GPU 编码线程中 handle_encoder_group_reconfigure_request 也参与该协调。","s":"libobs/obs-encoder.c:392 / libobs/obs-encoder.c:1621"},
+    {"q":"GPU 编码器如何实现纹理直通？","a":"gpu_encode_available 判断编码器提供 encode_texture/encode_texture2 且图形环境支持。可用时 add_connection 调 start_gpu_encode 而非 start_raw_video：obs.c 创建 NV12/P010 共享纹理与 gpu_encode_semaphore，启动 gpu_encode_thread。线程从 gpu_encoder_queue 取 obs_tex_frame，把 handle、tex、tex_uv 封装为 encoder_texture 直接交给 encode_texture2，省去 CPU 回读。","s":"libobs/obs-video-gpu-encode.c:155 / libobs/obs.c:3192"},
+    {"q":"GPU 编码线程如何管理纹理队列？","a":"gpu_encode_thread 用 os_sem_wait(gpu_encode_semaphore) 等待帧，在 gpu_encoder_mutex 下从 gpu_encoder_queue 弹出 obs_tex_frame 并逐个分发给 gpu_encoders。初始化时按 NUM_ENCODE_TEXTURES 用 gs_texture_create_nv12 或 gs_texture_create_p010 创建带 GS_SHARED_KM_TEX 的纹理，gs_texture_get_shared_handle 取句柄存入 avail_queue，完成后归还队列并更新 skipped 统计。","s":"libobs/obs-video-gpu-encode.c:24 / libobs/obs-video-gpu-encode.c:237"},
+    {"q":"关键帧标志与首包等待如何处理？","a":"33.0.1 核心没有单独的强制关键帧 API，关键帧由插件在 info.encode 中设置 pkt->keyframe。send_packet 中有 always wait for first keyframe 逻辑：若 !packet->keyframe 则不发给该回调，直到首个关键帧到达，确保输出从可独立解码的帧开始。编码器组重配置也以同步关键帧为目标。","s":"libobs/obs-encoder.c:1334 / libobs/obs-encoder.h:112"},
+    {"q":"SEI 数据如何注入首个视频包？","a":"get_sei 调可选的 info.get_sei_data 取得编码器私有 SEI 数据与大小。send_packet 对首个视频包（!cb->sent_first_packet）把 SEI 与 packet->data 拼接到临时 DARRAY 一并发送，若没有 SEI 则直接转发原包。这样 H.264/H.265 的编码参数在流开头即可被解码端获知。","s":"libobs/obs-encoder.c:1319 / libobs/obs-encoder.c:1364"},
+    {"q":"码流解析辅助库如何判断关键帧？","a":"libobs 提供 obs-avc.c 的 obs_avc_keyframe 与 obs_avc_find_startcode、obs-hevc.c 的 obs_hevc_keyframe、obs-av1.c 的 obs_av1_keyframe，以及 obs-nal.c 的 obs_nal_find_startcode。它们扫描 Annex-B 起始码、解析 NAL 单元类型来识别 IDR/关键帧，供录制、回放缓冲和 HLS 等按 GOP 切分时判断边界。","s":"libobs/obs-avc.c:25 / libobs/obs-nal.c:60"},
+    {"q":"编码延迟与 B 帧时间戳如何体现？","a":"有 B 帧时 DTS 与 PTS 不同，encoder_packet 同时保存 pts、dts 与 dts_usec。send_off_encoder_packet 用相对 DTS 计算 dts_usec，并借 encoder_packet_times 按 pts 找回该帧的 cts（composition time）等时序信息随包下发；输出交织队列据 DTS 排序发送、据 PTS 呈现，从而正确处理重排序与编码延迟。","s":"libobs/obs-encoder.c:1421 / libobs/obs-encoder.h:74"},
+    {"q":"timebase 如何影响编码时间戳？","a":"do_encode 把 pkt->timebase_num 设为 encoder->timebase_num 乘 frame_rate_divisor、timebase_den 取 timebase_den。receive_video 每成功编码一帧把 cur_pts 增加 timebase_num 乘 divisor，使 pts 按 timebase 步进。video_output_info 的 fps 决定 timebase，frame_rate_divisor 则实现低帧率编码时的时间戳缩放。","s":"libobs/obs-encoder.c:1473 / libobs/obs-encoder.c:1637"},
+    {"q":"编码器暂停如何保持同步？","a":"struct pause_data 含 mutex、ts_start/ts_end/ts_offset 与 last_video_ts。pause_reset 在首个回调加入时清零这些字段；video_pause_check_internal 记录 last_video_ts 并据暂停区间计算 ts_offset，send_off_encoder_packet 把 ts_offset 叠加到 sys_dts_usec。这样暂停期间音视频时间戳同步偏移，恢复后输出不出现跳变。","s":"libobs/obs-encoder.c:799 / libobs/obs-encoder.c:1510"},
+    {"q":"编码出错如何触发重置？","a":"send_off_encoder_packet 收到 success 为假时打印 Error encoding with encoder 并调 full_stop。full_stop 经 remove_connection(false) 从管线注销编码器并置未初始化，但不在此处 shutdown，以避免与输出结束数据捕获时按相反顺序持有 init_mutex 造成死锁；重启前由 obs_encoder_initialize 重新创建私有数据。","s":"libobs/obs-encoder.c:1372 / libobs/obs-encoder.c:1396"},
+    {"q":"obs_encoder_update 如何应用新设置？","a":"obs_encoder_update 在 init_mutex 下更新 context.settings：若编码器正在运行则设置 reconfigure_requested 标志，由下一次 do_encode 在编码前调 info.update(data, settings) 生效，避免管线中途直接改动造成竞态；若未运行则由 obs_encoder_initialize_internal 直接用新设置创建。组内编码器则按 lcm 边界同步应用。","s":"libobs/obs-encoder.c:585 / libobs/obs-encoder.c:1468"},
+    {"q":"obs_encoder_get_frame_size 用于什么？","a":"obs_encoder_get_frame_size 通过 info.get_frame_size 返回音频编码器每次编码所需样本帧数。receive_audio 据此判断 audio_input_buffer 是否累积够一帧再调 do_encode，使不同编码器（AAC 通常 1024）都能以各自帧长工作，而无需关心音频线程固定的 AUDIO_OUTPUT_FRAMES 块大小。","s":"libobs/obs-encoder.c:1152 / libobs/obs-encoder.h:198"},
+    {"q":"obs_encoder_shutdown 释放哪些状态？","a":"obs_encoder_shutdown 在 init_mutex 下若 context.data 存在，调 info.destroy 释放插件私有数据，并把 first_received、offset_usec、start_ts、frame_rate_divisor_counter 复位，清理可能由编码器专用 mix 创建的 video mix（maybe_clear_encoder_core_video_mix），再释放 paired_encoders 弱引用数组，最后清 last_error。","s":"libobs/obs-encoder.c:766 / libobs/obs-encoder.c:745"},
+    {"q":"paired_encoders 如何参与音视频对齐？","a":"obs_encoder 的 paired_encoders 是 DARRAY(obs_weak_encoder_t*)。receive_video 在首帧且尚未收到数据时遍历配对编码器，若任一 paired 尚未 first_received 或其 first_raw_ts 晚于当前帧时间戳，就跳到 wait_for_audio 不编码。这样视频首帧会等待音频就绪，从两端保证编码起始时间戳一致。","s":"libobs/obs-internal.h:1434 / libobs/obs-encoder.c:1603"},
+    {"q":"obs_encoder_packet_create_instance 的作用？","a":"obs_encoder_packet_create_instance(dst, src) 把源 encoder_packet 复制为独立实例，通常伴随引用计数处理，使包在异步输出队列中存活而不依赖原始栈上或临时缓冲。这样同一编码包可安全交给多个输出（send_off_encoder_packet 遍历 callbacks），各输出消费时机不同也不会互相破坏数据。","s":"libobs/obs-encoder.c:1888 / libobs/obs-encoder.c:1441"},
+    {"q":"start_raw_video 与 start_gpu_encode 在哪里实现？","a":"二者在 libobs/obs.c 实现并声明于 obs-internal.h。start_raw_video(v, conversion, frame_rate_divisor, callback, param) 转调 video_output_connect2 把回调注册到 video_output；stop_raw_video 对应 disconnect。start_gpu_encode/stop_gpu_encode 则管理 GPU 纹理编码纹理与线程生命周期。add_connection/remove_connection 只按类型选择调用它们。","s":"libobs/obs.c:3111 / libobs/obs.c:3192"}
+  ]
+};
+window.QA_4 = {
+  "output": [
+    {"q":"obs_output_info 接口包含哪些必填回调？","a":"obs_output_info 是输出的 C 语言虚表，必填字段有 id、flags、get_name、create、destroy、start、stop，以及按类型选择的 raw_video、raw_audio、encoded_packet。核心只依赖该接口，插件提供实现。","s":"libobs/obs-output.h:41"},
+    {"q":"OBS_OUTPUT_* flags 如何区分输出类型？","a":"flags 用位标志描述输出能力：OBS_OUTPUT_VIDEO/AUDIO 表示原始音视频，OBS_OUTPUT_ENCODED 表示接收编码包，OBS_OUTPUT_SERVICE 表示需绑定服务，OBS_OUTPUT_CAN_PAUSE 支持暂停，MULTI_TRACK 支持多轨。","s":"libobs/obs-output.h:25"},
+    {"q":"obs_output_create 如何创建输出实例？","a":"先用 find_output(id) 查找注册表；bzalloc 分配 obs_output，初始化 interleaved_mutex、delay_mutex、pause.mutex 等锁与 stopping_event，再调用 obs_context_data_init 并注册信号，最后插入 obs->data.first_output 链表。","s":"libobs/obs-output.c:196"},
+    {"q":"输出 id 未找到时 obs_output_create 如何处理？","a":"当 find_output 返回 NULL，libobs 记录错误并把 id 复制到 output->info.id（owns_info_id 为真），使输出仍能作为占位对象创建，context.data 为空，后续 start 因无数据失败，便于前端提示缺失插件。","s":"libobs/obs-output.c:223"},
+    {"q":"obs_output_create 中 get_defaults 与 create 何时调用？","a":"若 info->get_defaults 存在，先对 settings 填充默认值；随后调用 info->create(settings, output) 生成插件私有数据存入 context.data。若 create 返回空，则记录 Failed to create output 警告。","s":"libobs/obs-output.c:235"},
+    {"q":"obs_output_destroy 如何安全收尾？","a":"先从注册表移除上下文；若仍 active 则 obs_output_actual_stop(force=true)；等待 stopping_event，若 end_data_capture_thread 仍在运行则 pthread_join；随后 info.destroy 释放插件数据、free_packets 排空交织队列并释放编码器引用。","s":"libobs/obs-output.c:291"},
+    {"q":"obs_output_actual_start 做了什么？","a":"等待 stopping_event，清零 stop_code 与 last_error_message，调用 info->start(context.data)。成功时记录 starting_drawn_count 与 lagged_count 供停止统计，递减 delay_restart_refs，并清空各字幕轨缓存。","s":"libobs/obs-output.c:359"},
+    {"q":"obs_output_start 的完整启动流程？","a":"校验输出与 context.data；若带 OBS_OUTPUT_SERVICE 标志，先 obs_service_can_try_to_connect 与 obs_service_initialize 取连接参数；若设置 delay_sec 则走 obs_output_delay_start，否则 actual_start 成功后发出 starting 信号。","s":"libobs/obs-output.c:396"},
+    {"q":"obs_output_actual_stop 如何处理重连与强制停止？","a":"先取消暂停并重置 stopping_event。若正在重连则 signal reconnect_stop_event 并 join 重连线程。force 为真时关闭延迟捕获并结束采集；否则调用 info->stop(data, ts)，重连中则直接发 stop 信号。","s":"libobs/obs-output.c:472"},
+    {"q":"obs_output_stop 与 obs_output_force_stop 有何区别？","a":"stop 检查 active/reconnecting：重连中转 force_stop；编码输出且有延迟时发 delay_stop，否则发 stopping 后 actual_stop(force=false, now)。force_stop 无条件发 stopping 并 actual_stop(force=true, 0)，用于异常或退出。","s":"libobs/obs-output.c:530"},
+    {"q":"输出如何绑定视频与音频编码器？","a":"obs_output_set_video_encoder2 与 set_audio_encoder 把编码器指针存入 video_encoders[idx]/audio_encoders[idx]，并调用 obs_encoder_add_output 建立反向引用。一个编码器可被多个输出共享，编码只执行一次。","s":"libobs/obs-output.c:1013"},
+    {"q":"obs_output_set_service 如何建立服务关联？","a":"要求输出带 SERVICE 标志、未激活且服务未被占用；若服务原属其他输出先解绑，再设置 output->service 与 service->output 双向指针。编码输出通常用服务的 get_connect_info 取得服务器与推流码。","s":"libobs/obs-output.c:1148"},
+    {"q":"如何配置断线重连参数？","a":"obs_output_set_reconnect_settings 设置 reconnect_retry_max 与 reconnect_retry_sec。create 时默认 20 次、2 秒，退避指数 RECONNECT_RETRY_BASE_EXP 为 1.5 并带随机抖动，间隔上限 15 分钟。","s":"libobs/obs-output.c:1167"},
+    {"q":"total_bytes 与 dropped_frames 如何取得？","a":"obs_output_get_total_bytes 与 get_frames_dropped 把调用转发到 info->get_total_bytes/get_dropped_frames 的插件实现；延迟活跃但未开始捕获时字节数返回 0。未实现回调返回 0，total_frames 由核心在发送视频包时累加。","s":"libobs/obs-output.c:1176"},
+    {"q":"pause_data 结构如何描述暂停区间？","a":"pause_data 含 ts_start、ts_end、ts_offset、last_video_ts 与 mutex。pause_can_start 要求前后时间戳为空，pause_can_stop 要求有起点无终点；end_pause 用 ts_end 减 ts_start 累加 ts_offset，实现精确时间补偿。","s":"libobs/obs-output.c:648"},
+    {"q":"编码输出暂停如何实现？","a":"obs_encoded_output_pause 先锁住所有绑定编码器的 pause.mutex，用 get_closest_v_ts 对齐到最近视频帧时刻，批量设置各编码器 paused 标志与 ts_start，恢复时调用 end_pause，保证音视频同步暂停。","s":"libobs/obs-output.c:705"},
+    {"q":"raw 输出暂停与公开 pause 接口？","a":"obs_raw_output_pause 只操作 output->pause；obs_output_pause 要求 OBS_OUTPUT_CAN_PAUSE 且 active，按 flag_encoded 分派到编码或 raw 分支，成功后原子设置 output->paused 并发出 pause/unpause 信号。","s":"libobs/obs-output.c:826"},
+    {"q":"交织队列如何按 DTS 排序？","a":"insert_interleaved_packet 遍历 interleaved_packets，找到首个 dts_usec 大于新包的位置并 da_insert；相同 DTS 的视频包按 track_idx 排序，避免剪枝逻辑误删多轨视频数据。","s":"libobs/obs-output.c:2073"},
+    {"q":"interleave_packets 回调如何处理编码包？","a":"它先 get_encoder_index 标记 track_idx，舍弃首帧前非关键帧视频；互斥锁内 apply_interleaved_packet_offset 对齐时间戳后插入队列。音视频都收到后经 prune/initialize/resort 或 count_streamable_frames 判定逐包发送。","s":"libobs/obs-output.c:2222"},
+    {"q":"get_interleaved_start_idx 的作用是什么？","a":"它寻找音频与视频 DTS 最接近的位置作为交织起点，若首个音频 PTS 小于等于零（编码器 priming 静音）则回退到第一条音频包，避免丢弃起始音频帧造成同步偏差。","s":"libobs/obs-output.c:1776"},
+    {"q":"send_interleaved 如何把包交给插件？","a":"取出队列首包并 da_erase；视频包累加 total_frames、处理 CEA-608/708 字幕与 packet callback，最后调用 info->encoded_packet(data, &out)，并用 obs_encoder_packet_release 释放临时副本。","s":"libobs/obs-output.c:1681"},
+    {"q":"raw_video/raw_audio 回调路径是怎样的？","a":"default_raw_video_callback 先做 video_pause_check，若 data_active 则调用 info->raw_video 并累加 total_frames；default_raw_audio_callback 经 prepare_audio 对齐视频起始时间戳与 audio_pause_check 后调用 info->raw_audio。","s":"libobs/obs-output.c:2328"},
+    {"q":"输出对象有哪些信号？","a":"output_signals 数组声明 start、stop(ptr,int code)、pause、unpause、starting、stopping、activate、deactivate、reconnect、reconnect_success。starting 在启动时发出，stop 携带错误码，前端订阅这些信号更新界面。","s":"libobs/obs-output.c:172"},
+    {"q":"end_data_capture_thread 收尾做什么？","a":"编码输出按是否有延迟选择 process_delay、interleave_packets 或 default_encoded_callback，停止视音频编码器以排空残留包；raw 输出停视音频回调；再 obs_service_deactivate、清理延迟队列、发 deactivate、清 active 并 signal stopping_event。","s":"libobs/obs-output.c:2837"},
+    {"q":"停止时如何排空交织队列？","a":"obs_output_end_data_capture_internal 先置 data_active 为假并 log_frame_info，join 旧收尾线程后新建 end_data_capture_thread。编码器 stop 把剩余包继续送入回调，从而把交织队列发送完再真正停止。","s":"libobs/obs-output.c:2875"},
+    {"q":"重连线程如何工作？","a":"output_reconnect 设置 stop_code 为 OBS_OUTPUT_DISCONNECTED，按退避计算 reconnect_retry_cur_msec 并创建 reconnect_thread；线程用 os_event_timedwait 等待，超时则 obs_output_actual_start 重连，达 retry_max 后结束采集。","s":"libobs/obs-output.c:2931"},
+    {"q":"obs_output_signal_stop 如何决定是否重连？","a":"它保存 stop_code，can_reconnect 综合 retry_max、回调与错误码判断；可重连时若延迟活跃则递增 delay_restart_refs，结束采集后 output_reconnect；否则清除延迟与重连标志并正常 end_data_capture。","s":"libobs/obs-output.c:3019"},
+    {"q":"流延迟队列如何组织？","a":"obs-output-delay.c 的 delay_data 用 deque 保存 DELAY_MSG_PACKET/START/STOP，push_packet 在 delay_mutex 内入队并记录 os_gettime_ns 时间戳；process_delay 循环 pop_packet，当经过时间超过 active_delay_ns 才交给 delay_callback。","s":"libobs/obs-output-delay.c:46"},
+    {"q":"延迟的 PRESERVE 标志有何作用？","a":"pop_packet 中若 delay_cur_flags 含 OBS_OUTPUT_DELAY_PRESERVE 且正在重连，则不弹出包，而是把已等待的 elapsed_time 写回 active_delay_ns，实现重连期间保留画面的流延迟语义。","s":"libobs/obs-output-delay.c:105"},
+    {"q":"obs_output_set_delay 与查询函数？","a":"obs_output_set_delay 仅允许编码输出（log_flag_encoded），设置 delay_sec 与 flags；obs_output_get_delay 返回秒数，get_active_delay 以 active_delay_ns 除以十亿返回当前实际延迟，便于界面显示。","s":"libobs/obs-output-delay.c:189"},
+    {"q":"RTMP/FLV/MP4 输出由哪里提供？","a":"这些不是 libobs 内建，而是 obs-outputs 插件注册：rtmp-stream.c 的 id 为 rtmp_output，flv-output.c 为 flv_output，mp4-output.c 为 mp4_output，并在 obs-outputs.c 中统一调用 obs_register_output。","s":"plugins/obs-outputs/obs-outputs.c:63"},
+    {"q":"SRT/RIST 与 WHIP 输出如何提供？","a":"SRT/RIST 由 obs-outputs 插件基于 FFmpeg 提供；WHIP 由 obs-webrtc 插件提供，whip-output.cpp 注册 id whip_output，whip-service.cpp 注册 whip_custom 服务，并通过 get_connect_info 传递 bearer token。","s":"plugins/obs-webrtc/whip-output.cpp:733"}
+  ],
+  "service": [
+    {"q":"obs_service_info 接口结构是怎样的？","a":"obs-service.h 定义 obs_service_info，必填 id、get_name、create、destroy；可选 activate/deactivate、update、get_defaults/get_properties、initialize、get_url/get_key/get_username/get_password、apply_encoder_settings 与 get_output_type 等。","s":"libobs/obs-service.h:47"},
+    {"q":"get_url/get_key 如何参与推流？","a":"get_url 与 get_key 是服务回调，返回服务器地址与推流密钥。obs_output_start 在带 SERVICE 标志时调用 obs_service_initialize，插件内部据此组装连接串；现代接口也通过 get_connect_info 提供 SERVER_URL 与 STREAM_KEY。","s":"libobs/obs-service.c:271"},
+    {"q":"find_service 与 obs_service_create_internal？","a":"find_service 遍历 obs->service_types 按 id 查找 obs_service_info；create_internal 找不到则报错并返回 NULL，找到则 bzalloc obs_service、obs_context_data_init、复制 info、调用 info->create 存入 context.data，再插入 first_service 链表。","s":"libobs/obs-service.c:72"},
+    {"q":"服务默认值与属性如何生成？","a":"obs_service_defaults/get_defaults 创建 obs_data 并调用 info->get_defaults；obs_get_service_properties 取 info->get_properties 后用 obs_properties_apply_settings 填充默认值，供前端自动生成设置界面。","s":"libobs/obs-service.c:148"},
+    {"q":"obs_service_update 如何生效？","a":"先用 obs_data_apply 把新 settings 合并进 context.settings，再调用 info->update(data, settings) 通知插件刷新内部状态。服务设置通常在输出停止时修改，避免运行中改变连接参数导致断流。","s":"libobs/obs-service.c:197"},
+    {"q":"服务激活与停用如何与输出绑定？","a":"obs_service_activate 要求 service->output 存在，调用 info->activate 后置 active 为真；deactivate 调用 info->deactivate 并清标志，若 destroy 标记为真则真正销毁，remove 为真则断开与 output 的关联。","s":"libobs/obs-service.c:227"},
+    {"q":"initialize 与 apply_encoder_settings 何时调用？","a":"obs_service_initialize 在输出启动前调用 info->initialize(data, output)，返回假可阻止启动；obs_service_apply_encoder_settings 让服务（如 WHIP）按平台限制修改视频与音频编码器设置，如强制编解码器或码率。","s":"libobs/obs-service.c:283"},
+    {"q":"rtmp-services 与自定义服务器如何工作？","a":"rtmp-services 插件提供大量内置服务与 rtmp_custom（rtmp-custom.c），用户可填自定义 server 与 stream key；服务通过 connect_info 暴露 URL、密钥、Bearer Token 等，输出据此连接，一个服务同一时刻只能绑定一个输出。","s":"plugins/rtmp-services/rtmp-custom.c:180"}
+  ],
+  "module": [
+    {"q":"模块加载整体流程是怎样的？","a":"前端 obs_add_module_path 登记 bin/data 目录后触发加载，load_all_callback 遍历插件：get_plugin_info 校验是否 OBS 插件，检查安全模式与禁用列表，再 obs_open_module 与 obs_init_module，插件在 obs_module_load 中注册四类对象。","s":"libobs/obs-module.c:481"},
+    {"q":"os_dlopen 在哪里打开插件动态库？","a":"obs_open_module 中 mod.module = os_dlopen(path)，Windows 下为 LoadLibrary、POSIX 下为 dlopen。失败返回 MODULE_FAILED_TO_OPEN 并记录警告，成功后才继续解析导出符号与进行版本校验。","s":"libobs/obs-module.c:162"},
+    {"q":"load_module_exports 中哪些是必需符号？","a":"必需三个符号：obs_module_load、obs_module_set_pointer、obs_module_ver，缺失返回 MODULE_MISSING_EXPORTS。它们分别用于注册对象、回传 obs_module_t 句柄以及声明插件使用的 API 版本。","s":"libobs/obs-module.c:39"},
+    {"q":"哪些模块导出是可选的？","a":"可选导出包括 obs_module_unload、post_load、set_locale、free_locale、name、description、author、get_string，通过 os_dlsym 获取，缺失不影响加载；它们提供卸载清理、二阶段初始化与本地化文本能力。","s":"libobs/obs-module.c:53"},
+    {"q":"版本校验如何保证 ABI 兼容？","a":"obs_open_module 取 mod.ver() 与 0xFFFF0000 按位与后与 LIBOBS_API_VER 比较，若插件由更新的 libobs 编译（主次版本更大）则拒绝加载并返回 MODULE_INCOMPATIBLE_VER，patch 版本被忽略。","s":"libobs/obs-module.c:172"},
+    {"q":"obs_init_module 如何调用插件入口？","a":"先设置全局 loadingModule 为当前模块，再调用 module->load()（即 obs_module_load），完成后清空；用 profiler 记录耗时，失败时记录警告。loadingModule 让 obs_register_* 自动把对象归属到当前插件。","s":"libobs/obs-module.c:235"},
+    {"q":"MODULE_EXPORT 宏的作用是什么？","a":"obs-module.h 中 C++ 下为 extern C 加 EXPORT，C 下为 EXPORT，保证符号以 C 链接方式导出且跨平台可见。插件据此定义 obs_module_load 与 obs_module_ver 等函数，使 os_dlsym 能按固定名字找到。","s":"libobs/obs-module.h:23"},
+    {"q":"OBS_MODULE_USE_DEFAULT_LOCALE 宏做什么？","a":"该宏生成 MODULE_EXPORT 的 obs_module_ver 函数并返回 LIBOBS_API_VER，同时提供 obs_module_set_locale 的默认实现，用 obs_module_load_locale 载入翻译文件，简化插件本地化样板代码。","s":"libobs/obs-module.h:87"},
+    {"q":"obs_register_source_s 如何校验？","a":"它检查 info 的结构大小兼容、id 与 get_name、type 等必填项，以及 output_flags 对应的 video_render、audio_render、get_width 等回调，缺失时通过 source_warn 记警告并拒绝注册，避免运行期空指针。","s":"libobs/obs-module.c:1035"},
+    {"q":"obs_register_output_s 的校验规则？","a":"要求 get_name、create、destroy、start、stop；若标志含 SERVICE 则需 protocols，含 ENCODED 需 encoded_packet，raw 视频需 raw_video，raw 音频需 raw_audio2/raw_audio；通过后前端才能按 id 创建输出。","s":"libobs/obs-module.c:1140"},
+    {"q":"obs_register_encoder_s 要求哪些字段？","a":"校验 get_name、create、destroy、type 与 codec；视频编码器需 encode、get_frame_size 与 get_video_info，音频编码器需 get_audio_info。编码类型决定进入视频还是音频编码队列。","s":"libobs/obs-module.c:1205"},
+    {"q":"obs_register_service_s 要求什么？","a":"要求 get_name、create、destroy、get_protocol，其中 get_protocol 决定返回给输出的协议名；get_url/get_key/can_try_to_connect 等可选。注册后进入 obs->service_types，供 find_service 按 id 查询。","s":"libobs/obs-module.c:1247"},
+    {"q":"四类 *_types 注册表在哪里？","a":"obs_core 的 source_types、output_types、encoder_types、service_types 是 DARRAY，find_output/find_service 等按 id 线性查找；obs_*_create 工厂据此复制 info 并调用 create，实现注册表加工厂模式。","s":"docs-analysis/04-类图设计.md §3"},
+    {"q":"obs_module_add_* 系列函数作用？","a":"obs_module_add_source/output/encoder/service 把插件实现的 id 追加到 obs_module_t 的 sources/outputs/encoders/services 数组，用于记录归属，使 find_module 与禁用、卸载能按 id 反查所属插件。","s":"libobs/obs-module.c:309"},
+    {"q":"obs_load_all_modules 在 33.x 的现状？","a":"源码中 obs_load_all_modules 与 obs_load_all_modules2 是空兼容 stub；实际加载由 obs_load_core_modules（load_core_modules）与 obs_load_plugins（find_modules_in_path）分别完成核心模块与第三方插件的加载。","s":"libobs/obs-module.c:570"},
+    {"q":"安全模式如何跳过插件？","a":"load_all_callback 用 is_safe_module 判断，不在安全列表则 obs_create_disabled_module 标记 OBS_MODULE_DISABLED_SAFE 并跳过；被用户在插件管理器禁用的非核心插件标 OBS_MODULE_DISABLED，核心模块不受禁用影响。","s":"libobs/obs-module.c:496"},
+    {"q":"obs_post_load_modules 何时调用？","a":"所有模块初始化后由前端调用，Windows 下先 reset_win32_symbol_paths 重建符号路径，再遍历 first_module 调用可选的 post_load 回调，让插件在其他插件都注册完成后执行二次初始化。","s":"libobs/obs-module.c:623"},
+    {"q":"obs_add_module_path 做什么？","a":"把 bin（动态库目录）与 data（资源目录）加入 obs->module_paths，data 支持 %module% 占位符按模块名替换；find_modules_in_path 随后在这些路径中枚举可加载模块并交给回调处理。","s":"libobs/obs-module.c:408"},
+    {"q":"插件元数据包含什么？","a":"obs_module_load_metadata 读取 obs_module_metadata（name、description、author、url、license 等）供插件管理器展示；obs_module_get_config_path 返回插件私有配置路径，obs_find_module_file 定位模块资源文件。","s":"libobs/obs-module.c:101"},
+    {"q":"第三方插件管理器如何工作？","a":"frontend/plugin-manager 扫描插件、显示元数据并允许启用或禁用；libobs 用 first_disabled_module 链表与 obs_module_load_state（ENABLED/DISABLED/DISABLED_SAFE/FAILED_TO_*）记录状态，配合版本校验维持 ABI 稳定。","s":"docs-analysis/02-模块划分.md §4"}
+  ],
+  "graphics": [
+    {"q":"图形抽象层的核心设计是什么？","a":"graphics.h 定义 gs_* 公开 API 与 graphics_t；设备相关操作由 device-exports.h 的 device_* 函数指针表提供，三套后端实现同一张表，libobs 运行时按 graphics_module 动态加载其一。","s":"docs-analysis/01-架构设计.md §1.1"},
+    {"q":"device-exports.h 的函数表内容？","a":"声明 device_create/destroy、device_swapchain_create、device_texture_create、device_vertexshader_create、device_draw、device_present 等 EXPORT 函数，覆盖设备、资源、渲染状态与共享纹理能力，是后端必须实现的契约。","s":"libobs/graphics/device-exports.h:26"},
+    {"q":"graphics-imports.c 如何导入函数？","a":"GRAPHICS_IMPORT 宏用 os_dlsym(module, #func) 把符号地址填入 gs_exports，缺失则记错并置 success 为假；GRAPHICS_IMPORT_OPTIONAL 用于 gpu_get_renderer 等可选符号，load_graphics_imports 完成整表装载。","s":"libobs/graphics/graphics-imports.c:23"},
+    {"q":"gs_create 如何创建图形系统？","a":"gs_create 先 os_dlopen(module) 打开后端库，失败返回 GS_ERROR_MODULE_NOT_FOUND；再 load_graphics_imports 装载函数表，调用 exports.device_create 创建设备，最后 graphics_init 建立默认 effect 与 sampler 并返回 graphics_t。","s":"libobs/graphics/graphics.c:198"},
+    {"q":"graphics_t 与线程局部上下文？","a":"graphics.c 用 THREAD_LOCAL graphics_t *thread_graphics 记录当前线程上下文。gs_enter_context 加锁并调用 device_enter_context，引用计数递增；gs_leave_context 递减，归零则离开上下文并解锁。","s":"libobs/graphics/graphics.c:275"},
+    {"q":"obs_enter_graphics/leave_graphics 作用？","a":"obs.c 中两者分别转调 gs_enter_context(obs->video.graphics) 与 gs_leave_context。任何线程调用 gs_* API 前必须进入图形上下文，否则访问 thread_graphics 会失效，这是跨线程使用图形 API 的硬性约定。","s":"libobs/obs.c:1808"},
+    {"q":"后端设备类型枚举有哪些？","a":"graphics.h 定义 GS_DEVICE_OPENGL 为 1、GS_DEVICE_DIRECT3D_11 为 2、GS_DEVICE_METAL 为 3；gs_get_device_type 与 device_get_type 返回当前值，gs_get_device_name 返回名称，供诊断与能力判断。","s":"libobs/graphics/graphics.h:501"},
+    {"q":"gs_effect 结构如何组织？","a":"effect.h 中 gs_effect 含 DARRAY(gs_effect_param) params、DARRAY(gs_effect_technique) techniques、cur_technique 与 cur_pass 以及链表 next；effect 由 effect-parser 从类 HLSL 文本编译得到。","s":"libobs/graphics/effect.h:146"},
+    {"q":"technique 与 pass 的关系？","a":"gs_effect_technique 持有 passes 数组并指回 effect；gs_effect_pass 保存顶点与像素 shader、render_target、clear_flags 以及 blend/depth/stencil 状态。gs_technique_begin 与 effect_loop 用于逐 pass 绘制。","s":"libobs/graphics/effect.h:94"},
+    {"q":"gs_effect_param 描述什么？","a":"gs_effect_param 记录 name、type、默认值、绑定状态与 eparam；gs_effect_set_bool/float/matrix4/vec4/texture 等按类型写入，gs_effect_set_next_sampler 指定采样器，绘制前 gs_effect_update_params 上传常量。","s":"libobs/graphics/effect.h:47"},
+    {"q":"effect-parser 做什么转换？","a":"effect-parser.c 把类 HLSL 的 effect 文件解析为结构体、参数、technique 与 pass，并自动把依赖的结构、函数和参数写入每个 pass 的 shader 文本，再由各后端 shaderparser 翻译成 HLSL/GLSL/MSL。","s":"libobs/graphics/effect-parser.h:34"},
+    {"q":"ep_param 如何区分 uniform 与 texture？","a":"effect-parser.h 的 ep_param 含 type、name、default_val、properties，以及 is_uniform、is_texture、is_const 标志；is_texture 通过类型名以 texture 开头判定，written 与 writeorder 控制生成顺序避免重复定义。","s":"libobs/graphics/effect-parser.h:66"},
+    {"q":"ep_technique/ep_pass 结构？","a":"ep_technique 含 passes 数组与 name，ep_pass 保存 vertex_shader、pixel_shader 源码、sampler 状态与 name；解析阶段先构造中间结构，ep_compile_pass 再生成 gs_effect_pass 与后端 shader。","s":"libobs/graphics/effect-parser.h:170"},
+    {"q":"shader-parser 的中间表示？","a":"shader-parser.c 把 shader 文本解析为 shader_var 与 shader_parser 结构，提取 varying、uniform、函数与采样器信息，供 d3d11-shaderprocessor 与 gl-shaderparser 复用，避免各后端重复词法分析。","s":"libobs/graphics/shader-parser.h:18"},
+    {"q":"离屏渲染 texrender 如何工作？","a":"texture-render.c 的 gs_texture_render 保存 target、zstencil 与之前的渲染目标。gs_texrender_begin 创建 GS_RENDER_TARGET 纹理、压栈 viewport 与矩阵、切换目标；gs_texrender_end 恢复并置 rendered，get_texture 取结果。","s":"libobs/graphics/texture-render.c:26"},
+    {"q":"图像文件如何加载？","a":"image-file.c 用 stb 与 libnsgif 等解码 PNG/JPEG/GIF/WebP 到 CPU 像素，gs_create_texture_file_data3 返回颜色格式与尺寸并支持 alpha 模式；graphics.h 另有 gs_texture_create_from_file 直接生成 GPU 纹理。","s":"libobs/graphics/image-file.c:229"},
+    {"q":"数学库包含哪些？","a":"graphics 目录提供 matrix4.c、quat.c、vec2.c、vec3.c、vec4.c、matrix3.c、axisang.c、bounds.c 与 plane.c，实现矩阵乘法、四元数旋转、向量运算与包围盒，供源变换、投影矩阵与着色器参数使用。","s":"docs-analysis/02-模块划分.md §2.2"},
+    {"q":"texture 与 stagesurf 类型定义？","a":"graphics.h 用 typedef 声明 gs_texture_t、gs_stagesurf_t、gs_zstencil_t、gs_vertbuffer_t、gs_swapchain_t 等不透明句柄，实际结构由各后端定义，核心通过 device_* 函数操作，实现接口与实现分离。","s":"libobs/graphics/graphics.h:285"},
+    {"q":"共享纹理能力如何暴露？","a":"device-exports.h 声明 device_shared_texture_available、Apple 的 device_texture_open_shared、Linux 的 device_texture_create_from_dmabuf 与 device_query_dmabuf_capabilities，供捕获插件与编码器零拷贝交换纹理。","s":"libobs/graphics/device-exports.h:132"},
+    {"q":"gs_swapchain 如何创建？","a":"gs_init_data 封装原生 window 句柄、cx、cy 与格式；gs_swapchain_create 经 device_swapchain_create 建立交换链，display 用它把预览呈现到窗口，device_load_swapchain 与 device_present 负责切换与提交。","s":"libobs/graphics/graphics.h:492"}
+  ],
+  "backend": [
+    {"q":"三后端如何统一到 gs 函数表？","a":"libobs-d3d11、libobs-opengl、libobs-metal 都实现 device-exports.h 的 device_* 导出函数，形成同一张 gs_exports 函数表。libobs 只调用该表，不感知后端差异，从而实现可替换渲染后端。","s":"docs-analysis/02-模块划分.md §3"},
+    {"q":"后端如何选择加载？","a":"obs_video_info.graphics_module 指定后端动态库名（libobs-d3d11、libobs-opengl、libobs-metal），obs_init_graphics 调用 gs_create 加载；失败时映射为 OBS_VIDEO_MODULE_NOT_FOUND 等错误码返回前端。","s":"libobs/obs.c:489"},
+    {"q":"libobs-d3d11 的设备实现？","a":"d3d11-subsystem.cpp 实现 device_create 与 D3D11 设备、交换链、状态管理，配套 d3d11-texture2d、vertexbuffer、shader 等分片；用 ComPtr 管理 COM 对象，ConvertDXGITextureFormat 映射 DXGI 格式到 gs 格式。","s":"libobs-d3d11/d3d11-subsystem.cpp:18"},
+    {"q":"shaderprocessor 如何生成 HLSL？","a":"d3d11-shaderprocessor.cpp 接收 shader-parser 的中间结构，用 ConvertSemanticName 把 POSITION、NORMAL 映射为 SV_Position 等语义，按 mapping 与索引生成 D3D11_INPUT_ELEMENT_DESC 输入布局并拼出 HLSL 源码。","s":"libobs-d3d11/d3d11-shaderprocessor.cpp:24"},
+    {"q":"D3D11 桌面复制 duplicator？","a":"d3d11-duplicator.cpp 的 gs_duplicator::Start 用 IDXGIOutput1::DuplicateOutput 或 IDXGIOutput5::DuplicateOutput1 建立桌面复制，支持 R16G16B16A16_FLOAT 与 B8G8R8A8_UNORM；update_frame 处理 ACCESS_LOST 重建。","s":"libobs-d3d11/d3d11-duplicator.cpp:37"},
+    {"q":"D3D11 共享纹理如何支持零拷贝？","a":"d3d11-texture3d.cpp 用 IDXGIResource::GetSharedHandle 取得共享句柄；device-exports 还提供 Apple 的 device_texture_open_shared 与 Linux 的 create_from_dmabuf，让捕获与编码跨进程共享 GPU 纹理。","s":"libobs-d3d11/d3d11-texture3d.cpp:78"},
+    {"q":"OpenGL 后端 shader 如何转 GLSL？","a":"gl-shaderparser.h 说明 shader 近似 HLSL SM5，gl_shader_parser 用 input_prefix 与 output_prefix（如 _input_attrib）改写 varying，把 shader_parser 结果拼成 GLSL 字符串，并收集 texture_samplers 与 attribs。","s":"libobs-opengl/gl-shaderparser.h:20"},
+    {"q":"gl-subsystem 的平台适配？","a":"gl-subsystem.c 实现 device_create 与状态机；gl-nix.c、gl-windows.c、gl-cocoa.m 分别处理 Linux、Windows、macOS 上下文，gl-helpers.c 提供扩展查询，gl-shader.c 与 gl-stagesurf.c 管理 GL 资源。","s":"libobs-opengl/gl-subsystem.c:18"},
+    {"q":"Linux 下的 EGL/X11/Wayland 支持？","a":"gl-egl-common.c 封装 EGL 上下文与像素格式；gl-x11-egl.c 处理 X11 窗口与视觉选择，gl-wayland-egl.c 处理 Wayland surface 与 dmabuf，使 GL 后端在两种显示协议下均可创建 swapchain。","s":"libobs-opengl/gl-wayland-egl.c:18"},
+    {"q":"Metal 后端实现语言与限制？","a":"libobs-metal/README.md 说明后端完全用 Swift 实现，通过 -emit-objc-header 与 @cdecl 导出 C 函数；仅支持 Metal 3 与 Apple Silicon，属 alpha 质量，覆盖默认源、滤镜与转场。","s":"libobs-metal/README.md:4"},
+    {"q":"Metal 后端主要源文件？","a":"metal-subsystem.swift 与 MetalDevice.swift 实现设备及渲染状态，OBSShader.swift 与 metal-shader.swift 把 OBS effect 翻译为 MSL，metal-texture2d、metal-swapchain、metal-stagesurf.swift 管理纹理、交换链与回读。","s":"libobs-metal/CMakeLists.txt:1"},
+    {"q":"Metal 预览为何可能卡顿？","a":"README 指出 CAMetalLayer 最多约三个 drawable 在途，若都被 OBS 渲染与合成器占用，新 drawable 请求会阻塞；这是 macOS 合成机制差异，属已知问题，与 D3D/GL 的呈现模型不同。","s":"libobs-metal/README.md:51"},
+    {"q":"libobs-winrt 的 WGC 捕获？","a":"winrt-capture.cpp 使用 Windows.Graphics.Capture：GraphicsCaptureItem 表示目标窗口或显示器，Direct3D11CaptureFramePool::Create 建帧池，CreateCaptureSession 后 session.StartCapture()，FrameArrived 回调取帧。","s":"libobs-winrt/winrt-capture.cpp:106"},
+    {"q":"WGC 的兼容处理？","a":"代码通过 IGraphicsCaptureItemInterop 把 HWND 与 HMONITOR 转成 GraphicsCaptureItem，并动态探测 IsCursorCaptureEnabled、IsBorderRequired 属性，RequestAccessAsync 申请无边框权限，旧系统回退 BitBlt/DXGI。","s":"libobs-winrt/winrt-capture.cpp:245"},
+    {"q":"三平台的差异总结？","a":"Windows 主力用 D3D11 加 DXGI 复制与 WGC，Linux 用 OpenGL（EGL/X11/Wayland）与 dmabuf/v4l2，macOS 用 Metal（Swift）与 IOSurface；三者通过同一 device_* 表接入 libobs，由 obs_enter_graphics 统一保护上下文。","s":"docs-analysis/02-模块划分.md §3"}
+  ]
+};
+window.QA_5 = {
+  "canvas": [
+    {"q":"33.x 中的 obs_canvas（画布）是什么，它把哪些对象组合在一起？","a":"obs_canvas 是 33.x 引入的画布抽象，由 obs_canvas_create_internal 创建。它内嵌 obs_context_data，持有自己的 obs_view（64 输出通道）与可选的 obs_core_video_mix，mix->view 指向该 view。有 ovi 时 عبر obs_create_video_mix 生成独立渲染纹理与编码队列，并挂入 obs->video.mixes，支持多画布独立分辨率合成。","s":"libobs/obs-canvas.c:138"},
+    {"q":"主画布 main_canvas 是如何创建并保证全生命周期存在的？","a":"obs_create_main_canvas 调用 obs_canvas_create_internal，传入 main_flags=MAIN|PROGRAM，并固定名字 MAIN_CANVAS_NAME（Main）与 MAIN_CANVAS_UUID。主画布以 MAIN 标志创建，obs_canvas_create 用户接口会清除 MAIN 位，obs_canvas_remove/destroy 也禁止删除 MAIN，从而保证其贯穿程序生命周期。","s":"libobs/obs-canvas.c:188"},
+    {"q":"obs_view 的 channels[64] 输出通道是如何组织与渲染的？","a":"obs_view 内含 obs_source* channels[MAX_CHANNELS]，MAX_CHANNELS 在 obs-defs.h 定义为 64，由 channels_mutex 保护。obs_view_render 在锁内按索引 0..63 升序遍历，对非空且未 removed 的通道调用 obs_source_video_render，removed 源则释放置空，实现按通道叠加的渲染顺序。","s":"libobs/obs-view.c:118"},
+    {"q":"前端调用的 obs_set_output_source 最终落到哪里？","a":"obs_set_output_source 是公开 API，内部直接转发为 obs_canvas_set_channel(obs->data.main_canvas, channel, source)，即操作主画布对应通道；obs_get_output_source 同理调用 obs_canvas_get_channel。这体现画布抽象引入后原全局通道 API 保持兼容的代理关系。","s":"libobs/obs.c:1835"},
+    {"q":"obs_canvas_set_channel 设置通道时做了哪些加锁、信号与激活处理？","a":"先 assert(channel<MAX_CHANNELS) 并加锁 channels_mutex，obs_source_get_ref 取新源引用；若与旧源相同则释放返回。随后用 calldata 组装 canvas/channel/prev_source/source，触发 channel_change 信号（MAIN 画布额外向全局 obs->signals 发一次），写回 channels[channel]，最后对新源 obs_source_activate、对旧源 deactivate 并释放。","s":"libobs/obs-canvas.c:431"},
+    {"q":"多画布如何实现独立分辨率？obs_canvas_reset_video 的限制是什么？","a":"每个画布用 obs_canvas_reset_video_internal 重建 mix：先 obs_canvas_clear_mix 移除旧 mix，复制新 ovi 后 obs_create_video_mix，设置 mix->view/mix_audio 并挂入 mixes 数组，再发 canvas_video_reset 信号。公开 obs_canvas_reset_video 拒绝 ovi 为空、带 MAIN 标志或 obs_canvas_video_active（raw/gpu 编码活跃）的画布。","s":"libobs/obs-canvas.c:404"},
+    {"q":"obs_core_video_mix 中有哪些与多画布渲染相关的关键字段？","a":"mix 持有 obs_view* view、gs_texture_t* render_texture、convert_textures[]、双纹理 stagesurf 回读缓冲 copy_surfaces[2][3]、video_t* video（视频 IO）、deque gpu_encoder_queue 与 obs_video_info ovi。这些字段让每个画布拥有独立的渲染目标、格式转换、回读与 GPU 编码队列，是多画布独立合成的物理基础。","s":"docs-analysis/04-类图设计.md §3"},
+    {"q":"obs_display 预览窗口的 swapchain 在哪里创建，尺寸如何生效？","a":"obs_display_init 在 graphics_data 非空时用 gs_swapchain_create 创建 display->swap，并记录 cx/cy/next_cx/next_cy；NVIDIA 多 GPU 且不支持快速清屏时启用 use_clear_workaround。obs_display_resize 只改 next_cx/next_cy，真正 gs_resize 延迟到 render_display_begin 中按目标尺寸执行，避免跨线程立即操作图形 API。","s":"libobs/obs-display.c:22"},
+    {"q":"obs_display 的 draw_callback 机制是怎样注册和执行的？","a":"obs_display_add_draw_callback 把 draw 函数指针与 param 组成 draw_callback，加锁 da_push_back 到 display->draw_callbacks，remove 时 da_erase_item。render_display 由图形线程调用，先 render_display_begin 加载 swapchain 并设置正交投影，再在锁内遍历所有回调逐个执行，最后 gs_present 呈现预览帧。","s":"libobs/obs-display.c:144"},
+    {"q":"obs_hotkey 的前端热键如何注册，回调签名是什么？","a":"obs_hotkey_register_frontend(name, description, func, data) 向 obs_core_hotkeys 注册一个前端热键，返回 obs_hotkey_id，func 为 obs_hotkey_func 类型回调。前端用它把 UI 动作（如开始/停止推流）绑定为全局热键，之后通过 obs_hotkey_set_binding 绑定具体按键组合，触发时回调收到 pressed 状态。","s":"libobs/obs-hotkey.c:189"},
+    {"q":"OBS 的热键线程 obs_hotkey_thread 如何工作？","a":"obs_hotkey_thread 是热键轮询线程入口，内部用 profile_store_name 以约 25ms 周期命名采样（obs_hotkey_thread(25 ms)），周期性检测全局按键状态并派发热键。配合 obs_hotkey_enable_background_press、obs_hotkey_trigger_routed_callback 与 obs_hotkey_enable_callback_rerouting，支持后台按键与事件重路由到 UI 线程。","s":"libobs/obs-hotkey.c:1157"},
+    {"q":"画布对象对外发出哪些信号，canvas_dosignal 有什么特点？","a":"canvas_signals[] 声明 destroy、remove、video_reset、source_add/remove/rename、rename、channel_change 等信号。canvas_dosignal 用栈上 128 字节 calldata_init_fixed 组装 calldata 并设置 canvas 指针：非私有画布既向全局 obs->signals 发信号（如 canvas_create），又向画布自身 context.signals 发一份，实现全局与局部双重订阅。","s":"libobs/obs-canvas.c:30"}
+  ],
+  "callback": [
+    {"q":"libobs 的 signal_handler 发布订阅模型由哪些结构组成？","a":"struct signal_handler 维护 signal_info* first 链表、互斥锁、volatile long refs 与 global_callbacks 数组。每个 signal_info 含 decl_info func、DARRAY(signal_callback) callbacks、递归 mutex 与 signalling 标志；signal_callback 记录 callback/data/remove/keep_ref。头文件由 signal.h 声明，实现于 callback/signal.c。","s":"libobs/callback/signal.c:87"},
+    {"q":"signal_handler_add 如何声明一个信号？","a":"signal_handler_add 先用 parse_decl_string 解析形如 void channel_change(ptr canvas, int channel) 的声明串为 decl_info，失败记 LOG_ERROR。加锁后 getsignal 查重，已存在则告警并返回 false，否则 signal_info_create 创建节点挂入链表。对象构造时常配 signal_handler_add_array 批量注册。","s":"libobs/callback/signal.c:160"},
+    {"q":"signal_handler_connect 与 connect_ref 有什么区别？","a":"两者都走 signal_handler_connect_internal。connect 传 keep_ref=false，仅登记回调；connect_ref 传 true，会 os_atomic_inc_long 增加 handler->refs，使订阅者持有处理器引用，避免回调期间对象被销毁。若同一 callback/data 已存在且非 keep_ref 则不重复添加，保证去订阅唯一性。","s":"libobs/callback/signal.c:191"},
+    {"q":"signal_handler_signal 发布信号时如何保证回调安全？","a":"getsignal_locked 取信号节点后加 sig->mutex 并置 signalling=true，遍历 callbacks 跳过 remove 项，用线程局部 current_signal_cb 指向当前回调再调用，支持回调内 self-remove。之后倒序清除带 remove 的回调并累计 keep_ref 引用，最后遍历 global_callbacks（带 signaling 计数），统一扣减 refs。","s":"libobs/callback/signal.c:290"},
+    {"q":"为什么信号回调里不能直接 disconnect，signal_handler_remove_current 做了什么？","a":"发布时 sig->signalling 为 true，signal_handler_disconnect 不立即 da_erase，而是把对应 callback 的 remove 置 true，避免遍历中破坏数组。signal_handler_remove_current 利用线程局部 current_signal_cb/current_global_cb 让当前正在执行的回调标记自身 remove，真正的删除在 signal_handler_signal 遍历结束后的倒序清理阶段完成。","s":"libobs/callback/signal.c:282"},
+    {"q":"全局信号回调 connect_global 的用途与去重方式？","a":"signal_handler_connect_global 注册 global_signal_callback_t，这类回调不分信号名，任意信号发布都会被通知，适合统一监听对象所有状态变化。它用 da_find 按 callback/data 组合查重，已存在则不重复入 global_callbacks；断开时若正在 signaling 则标 remove，否则立即擦除。","s":"libobs/callback/signal.c:353"},
+    {"q":"calldata 的底层数据栈格式是怎样的？","a":"calldata.c 注释说明其使用连续数据栈，布局为：[size_t 名字长度][char 名字][size_t 数据长度][uint8 数据] 逐项排列，末尾以 size_t 0 结束。字符串长度含结尾符以支持直接引用。cd_getparam 顺序扫描名字比较定位参数，这种设计减少零散分配、提升回调参数存取效率。","s":"libobs/callback/calldata.c:24"},
+    {"q":"calldata_init_fixed 与普通 calldata 在容量上有什么区别？","a":"cd_set_first_param 首次设置参数时按 sizeof(size_t)*3+name_len+size 计算容量，不足 128 则取 128 并 bmalloc。calldata_init_fixed 允许传入栈上固定缓冲（如 canvas 用的 uint8_t stack[128]），此时 data->fixed=true，扩容函数 cd_ensure_capacity 检测到 fixed 会报 LOG_ERROR 并拒绝写入，防止越界。","s":"libobs/callback/calldata.c:112"},
+    {"q":"calldata 如何读写参数并处理扩容？","a":"calldata_set_data/get_data 通过 cd_getparam 定位参数；set 时若新数据更大，cd_ensure_capacity 以 capacity*2 或 new_size 扩容并 brealloc，再用 memmove 搬移保持栈内偏移一致；fixed 缓冲则拒绝。calldata_get_string 用 cd_serialize_string 返回字符串指针，另有 set_int/set_bool/set_ptr 等封装复用同一栈机制。","s":"libobs/callback/calldata.c:133"},
+    {"q":"proc_handler 过程调用表与 signal_handler 有何分工？","a":"struct proc_handler 内含 pthread_mutex_t 与 DARRAY(struct proc_info) procs，每个 proc_info 记录 decl_info func、回调 proc 与 data。signal 用于一对多通知，proc 用于对象对外暴露一对一可调用方法（如刷新属性）。proc_handler_call 由前端主动发起调用并返回 bool 表示是否命中。","s":"libobs/callback/proc.c:34"},
+    {"q":"proc_handler_add 与 proc_handler_call 的实现要点是什么？","a":"proc_handler_add 解析声明串填 proc_info，getproc 按名字查重后 da_push_back。proc_handler_call 加锁由 getproc 找到 info，做 info_copy 副本后解锁再调用其 proc(data, params)，避免持锁执行用户代码导致死锁或重入问题；找不到过程则返回 false。","s":"libobs/callback/proc.c:111"},
+    {"q":"obs_data_t 为何被称为 JSON 式设置对象，它负责什么？","a":"obs_data_t 是 obs-data.c 实现的键值容器，支持 set/get_bool/int/float/string/array/object 等类型，并可读写 JSON。所有源、输出、编码器的 settings 都是 obs_data_t，插件 update/create 从它取参数，场景集合/配置借此序列化持久化，是 OBS 设置与存档的基础数据结构。","s":"docs-analysis/02-模块划分.md §2.1"},
+    {"q":"obs_data 如何从 JSON 反序列化？","a":"obs_data_create_from_json 调用 jansson 解析 JSON 字符串，遍历 object 逐一 obs_data_set_string 等写入键值；obs_data_create_from_json_file 读文件后转调它，_safe 版本在解析失败时尝试备份文件恢复。obs_data_get_json_internal 则反向用 obs_data_get_json/pretty/with_defaults 生成 JSON 文本。","s":"libobs/obs-data.c:606"},
+    {"q":"obs_data 持久化到文件有哪些接口，safe 版本为何更安全？","a":"obs_data_save_json 先用 obs_data_get_json 生成文本再写文件；obs_data_save_json_safe 与 obs_data_save_json_pretty_safe 引入 temp_ext 临时文件与 backup_ext 备份：先写临时文件成功后再替换目标、旧文件转备份，避免写入中断导致配置文件损坏，常用于自动保存场景集合与设置。","s":"libobs/obs-data.c:758"},
+    {"q":"obs_data_array 如何表示数组类型设置？","a":"obs_data_array_create 创建数组，obs_data_item 内部以 obs_data_array_t* 保存，get_item_array/get_item_default_array/get_item_autoselect_array 分别取当前值/默认值/自动选择值。obs_data_set_array、obs_data_get_array、obs_data_array_push_back 等构成完整数组 API，可嵌套 obs_data_t，用于表示如 VLC 播放列表、热键绑定列表等。","s":"libobs/obs-data.c:466"},
+    {"q":"obs_properties_t 在插件与 UI 之间扮演什么角色？","a":"obs_properties_t 由 obs-properties.c 实现，是插件向界面声明设置控件的元数据容器。插件在 get_properties 中用 obs_properties_add_* 添加控件项的 name/desc/type 与约束，UI 端由 shared/properties-view 读取这些描述自动生成设置面板，实现插件不依赖具体 UI 的解耦。","s":"libobs/obs-properties.c:507"},
+    {"q":"obs_property_type 枚举包含哪些主要控件类型？","a":"obs-properties.h 的 enum obs_property_type 定义 OBS_PROPERTY_INVALID/BOOL/INT/FLOAT/TEXT/PATH/LIST/BUTTON/FONT/EDITABLE_LIST/FRAME_RATE/GROUP/COLOR_ALPHA 等。obs_properties_add_bool/int/float/text/path/list/color/button/font/group 等分别创建对应类型，obs_property_get_type 返回类型，UI 依此选择 Qt 控件。","s":"libobs/obs-properties.h:45"},
+    {"q":"数值与列表属性如何附加约束？按钮属性如何触发动作？","a":"obs_properties_add_int/float/int_slider 带 min/max/step 参数，obs_property_int_min/max、obs_property_int_type 读取约束；add_list 用 OBS_COMBO_TYPE 与 OBS_COMBO_FORMAT 并用 obs_property_list_add_* 填充选项。按钮用 add_button/add_button2，UI 点击时调 obs_property_button_clicked(p, obj) 触发插件回调。","s":"libobs/obs-properties.c:820"},
+    {"q":"properties-view 如何把 obs_properties 自动渲染为设置界面？","a":"shared/properties-view/properties-view.cpp 是通用引擎，遍历 obs_properties 的每个 obs_property，按 obs_property_get_type 分派创建 QCheckBox、SpinBox、ComboBox、路径选择、按钮等控件，并与 obs_data_t 双向绑定； obs_property_modified/按钮点击触发 refresh 或回调，使插件设置 UI 无需各写一遍。","s":"shared/properties-view/properties-view.cpp"},
+    {"q":"插件设置从打开到保存更新的典型流程是怎样的？","a":"打开属性对话框时前端调插件 get_properties 得到 obs_properties_t，properties-view 依它建 UI 并以当前 settings 初始化；用户交互会 obs_data_set_* 更新临时 settings， modified 回调可刷新控件；确认后调插件 update(settings, source)，部分插件再 signal_handler_signal 通知状态变化，最终把 settings 存入场景集合配置。","s":"docs-analysis/03-软件时序图.md §1"},
+    {"q":"信号/过程/calldata 在数据与属性体系中如何体现观察者模式？","a":"观测者通过 signal_handler_connect_ref 订阅对象的 signal（如 rename、channel_change），对象状态变化时 canvas_dosignal 等用 calldata 携带参数广播，前端据此刷新 UI 而不轮询；proc_handler 则提供反向的可调用方法通道。calldata 统一封装回调参数，obs_data 负责被观察状态的持久化，共同构成事件驱动架构。","s":"docs-analysis/04-类图设计.md §6"},
+    {"q":"signal_handler_destroy 的引用计数为何用 os_atomic_dec_long？","a":"signal_handler_create 初始化 refs=1，connect_ref 与回调持有会原子自增，destroy 用 os_atomic_dec_long(&refs) 判断归零才真正 signal_handler_actually_destroy，逐个 signal_info_destroy 并释放 global_callbacks。原子操作保证多线程发布/订阅与销毁竞争时不会提前释放处理器，避免悬垂指针。","s":"libobs/callback/signal.c:153"}
+  ],
+  "frontend": [
+    {"q":"OBS 前端进程的入口 main() 位于哪里，主要做了什么？","a":"入口在 frontend/obs-main.cpp 的 main(int argc, char* argv[])。它解析命令行参数、配置日志与崩溃处理、检查单实例，构造 OBSApp 程序对象并加载配置与主题，随后调用 program.OBSInit()（obs-main.cpp:685），成功后进入 Qt 事件循环，失败则退出。","s":"frontend/obs-main.cpp:882"},
+    {"q":"OBSApp::OBSInit 在启动链路中承担什么职责？","a":"OBSApp 是 QApplication 子类，OBSApp::OBSInit（OBSApp.cpp:1274）负责启动 libobs：调用 obs_startup(locale, config_path, store) 初始化 obs_core 各子结构，设置崩溃/日志处理器，加载主题与翻译，构造 OBSBasic 主窗口并调用 mainWindow->OBSInit()（第 1351 行），完成全局状态装配。","s":"frontend/OBSApp.cpp:1274"},
+    {"q":"OBSBasic::OBSInit 主要完成哪些初始化？","a":"OBSBasic 主窗口的 OBSInit（widgets/OBSBasic.cpp:874）先 InitBasicConfig 读 basic.ini，再按顺序 obs_reset_audio 创建音频线程、obs_reset_video 加载图形后端并创建图形线程，随后由 PluginManager::LoadModules 加载插件，加载场景集合、创建场景与源并绑定输出通道，最后创建预览显示并进入交互状态。","s":"frontend/widgets/OBSBasic.cpp:874"},
+    {"q":"为什么初始化顺序是音频先于视频？","a":"时序图显示 OBSBasic.cpp 第 881-887 行先 obs_reset_audio 再 obs_reset_video。音频线程按固定 1024 采样节拍运行且不依赖图形上下文，先就绪可保证采集与监听尽早工作；obs_reset_video 成功后图形线程即常驻渲染预览。该顺序在 frontends.rst 与文档中被明确标注。","s":"docs-analysis/03-软件时序图.md §1"},
+    {"q":"OBSBasic 主窗口为何拆分成多个分部实现文件？","a":"OBSBasic 是 QMainWindow 子类，功能庞大，故按职责拆为 40+ 分部文件：OBSBasic_Streaming.cpp、OBSBasic_Recording.cpp、OBSBasic_SceneCollections.cpp、OBSBasic_Settings.cpp 等，各自实现同一类的推流、录制、场景集合、设置等成员函数，避免单文件过大，便于协作维护。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"BasicOutputHandler 抽象基类负责什么，有哪些子类？","a":"BasicOutputHandler（utility/）封装推流、录制、回放缓冲、虚拟摄像头的编码器/输出/服务装配，持有 streamOutput、recordOutput、videoEncoder、audioEncoder 等指针，声明 SetupStreaming/StartStreaming 等虚方法。SimpleOutput 与 AdvancedOutput 继承它，分别实现简单与高级输出模式下的配置差异。","s":"docs-analysis/04-类图设计.md §5"},
+    {"q":"从点击开始推流到输出启动的调用链是怎样的？","a":"OBSBasic::StartStreaming（OBSBasic_Streaming.cpp:48）先检查授权与输出状态，调用 outputHandler->SetupStreaming 创建/更新编码器与服务，finish_stream_setup 成功后 StartStreaming，内部 obs_output_set_service/set_video_encoder/set_audio_encoder 绑定对象，最后 obs_output_start 触发 service 初始化、编码器 start 与 RTMP 连接。","s":"docs-analysis/03-软件时序图.md §2"},
+    {"q":"obs-frontend-api 如何向外暴露前端事件？","a":"frontend/api/obs-frontend-api.h 定义 enum obs_frontend_event，包括 STREAMING_STARTED/STOPPED、RECORDING_*、SCENE_CHANGED、TRANSITION_STOPPED、SCENE_COLLECTION_CHANGED、EXIT、VIRTUALCAM_*、CANVAS_ADDED/REMOVED 等，并提供 obs_frontend_add_event_callback/remove_event_callback 让前端插件注册 obs_frontend_event_cb。","s":"frontend/api/obs-frontend-api.h:17"},
+    {"q":"OBSStudioAPI 与 obs-frontend-api  evoke 层是什么关系？","a":"obs-frontend-api.cpp 是 C ABI 转发层，如 obs_frontend_add_tools_menu_qaction 在第 328 行检查 callbacks_valid 后转调 C++ 实现。OBSStudioAPI 类（OBSStudioAPI.cpp）实现真正的菜单、翻译等能力，如 obs_frontend_push_ui_translation 在第 514 行把翻译回调压栈，供前端插件扩展 UI。","s":"frontend/OBSStudioAPI.cpp:317"},
+    {"q":"前端插件如何向 OBS 菜单添加动作与自定义翻译？","a":"前端插件调 obs_frontend_add_tools_menu_qaction(name) 在工具菜单加入 QAction 并返回指针以连接槽函数；obs_frontend_push_ui_translation(translate) 压入 obs_frontend_translate_ui_cb 回调栈，使插件能覆盖界面文本翻译。二者均由 OBSStudioAPI 实现，经 obs-frontend-api 的 C 接口暴露。","s":"frontend/api/obs-frontend-api.cpp:328"},
+    {"q":"OBSQTDisplay 如何把 Qt 窗口与 libobs 预览绑定？","a":"OBSQTDisplay（frontend/widgets/）是预览控件，把原生窗口句柄封装为 gs_init_data 传给 obs_display_create 创建 display，并通过 AddDrawCallback 注册绘制回调，在回调里用 obs_get_video/render 主画布画面。libobs 图形线程直接向该 swapchain 呈现，Qt 只负责窗口事件，避免跨线程图形调用。","s":"docs-analysis/01-架构设计.md §7"},
+    {"q":"plugin-manager 子目录解决什么问题？","a":"frontend/plugin-manager/ 负责第三方插件的发现、启用/禁用与安全模式。它扫描插件目录、读取元数据 obs_module_metadata（依赖与版本），把未知或异常插件列入黑名单；安全模式下跳过加载以避免崩溃。它与 obs_add_module_path/obs_load_all_modules 配合，让插件加载可被前端控制。","s":"docs-analysis/01-架构设计.md §6"},
+    {"q":"oauth 子目录在前端承担什么功能？","a":"frontend/oauth/ 实现 Twitch、YouTube、Restream 等平台的 OAuth 登录授权流程：构造授权 URL、在内置浏览器或系统浏览器完成登录、接收回调 code 换取 token，并把 token/刷新令牌写入服务配置。推流设置页据此让用户免手填流式密钥，属于前端与 rtmp-services 的协作模块。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"importers 与 wizards 子目录分别做什么？","a":"importers/ 提供从 XSplit、Streamlabs 等竞品导入配置的能力，解析其配置并映射为 OBS 的场景、源与设置。wizards/ 实现自动配置向导，通过带宽测速、硬件编码器探测为用户推荐码率与编码器参数，降低新手配置门槛，二者都是可选的前端辅助流程。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"updater 与 settings 子目录的职责是什么？","a":"updater/ 负责自动更新：检查新版本、下载更新包并引导安装，常与 shared/file-updater 配合。settings/ 实现设置页（视频/音频/输出/推流/热键/高级），各页面用 properties-view 或自定义 Qt 窗体读写 obs_data 配置并 obs_reset_video/audio 应用变更。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"OBSBasic 如何通过信号机制响应核心状态变化？","a":"OBSBasic 在初始化时用 signal_handler_connect 订阅 obs->signals 与输出/源信号，如 source_create、source_destroy、channel_change、canvas_rename、transition_stop 等。回调中更新场景模型、混合器与状态栏，配合 obs-frontend-api 事件把状态广播给前端插件，形成核心到 UI 的单向通知链。","s":"docs-analysis/01-架构设计.md §1"},
+    {"q":"obs-frontend-api 的回调注册机制如何保证线程与生命周期安全？","a":"obs-frontend-api.cpp 用静态 callbacks 结构与 callbacks_valid() 判断有效性，add/remove_event_callback 成对维护回调数组；C++ OBSStudioAPI 实现具体分发。前端退出时先发 OBS_FRONTEND_EVENT_EXIT/SCRIPTING_SHUTDOWN 通知插件清理，再置回调失效，避免插件在销毁阶段继续调用已失效的前端对象。","s":"frontend/api/obs-frontend-api.cpp:166"},
+    {"q":"预览与节目输出如何使用不同 canvas？","a":"33.x 中画布概念让预览与节目可分离：main_canvas（PROGRAM）承载最终输出通道，另可创建 AUX 画布用于预览。obs_canvas_render 调 obs_view_render 渲染各自 view，obs_display 的自由绘制回调可指定渲染哪个画布纹理。Studio Mode 下 OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED 通知插件这一状态切换。","s":"libobs/obs-canvas.c:589"},
+    {"q":"前端组件 components/ 与 models/ 目录有何作用？","a":"components/ 存放可复用 UI 组件，如音量条 VolControl、源树 SourceTree、场景集合部件、多轨音频 Mixer 等；models/ 提供 Qt 模型封装源与场景列表，供 QListView 等显示。它们把数据（obs_source/obs_scene）与视图解耦，是 OBSBasic 分部文件复用的基础构件。","s":"docs-analysis/02-模块划分.md §4"},
+    {"q":"关闭应用时前端如何安全收尾？","a":"关闭主窗口时 OBSApp 通知 OBSBasic 停止所有输出与录制、保存场景集合与配置，outputHandler 逐渐排空交织队列后 stop，随后释放所有源/输出/编码器/服务引用并 obs_shutdown，停止图形/音频/视频IO/热键线程、卸载插件并释放图形设备，最后进程退出，避免资源泄漏。","s":"docs-analysis/03-软件时序图.md §6"}
+  ],
+  "plugins": [
+    {"q":"OBS 插件为什么编译为独立动态库，导出哪些约定符号？","a":"每个插件是独立 .dll/.so/.dylib，运行时由 obs_load_all_modules 通过 os_dlopen 加载、os_dlsym 解析约定符号。obs-module.h 的 MODULE_EXPORT 宏导出 obs_module_load/unload/post_load/set_locale/ver 等函数，插件在 obs_module_load 中向核心注册 Source/Output/Encoder/Service，实现二进制级解耦。","s":"docs-analysis/01-架构设计.md §6"},
+    {"q":"obs_module_load 中通常完成什么动作？","a":"obs_module_load 是插件入口，调用 obs_register_source/obs_register_output/obs_register_encoder/obs_register_service 把本插件的 *_info 注册进 obs_core 的对应 *_types 注册表；也可声明 obs_module_metadata 依赖与版本。核心只按 id 查找实例化，插件内部实现细节对核心不可见。","s":"docs-analysis/01-架构设计.md §6"},
+    {"q":"四类 *_info 结构为何被称为 C 语言的接口/虚表？","a":"obs_source_info/obs_output_info/obs_encoder_info/obs_service_info 都是纯 C 结构：id + get_name/create/destroy 等函数指针 + output_flags 能力位。核心面向这些接口编程，插件提供具体实现，形成策略模式。obs_source_info.type 决定 INPUT/FILTER/TRANSITION/SCENE 行为分支。","s":"docs-analysis/04-类图设计.md §2"},
+    {"q":"image-source 插件为何是学习插件的最佳起点？","a":"image-source/image-source.c 定义 image_source_info（第 368 行），实现 get_name/create/destroy/get_width/get_height/video_render/update 等最小回调集，obs_module_load 中 obs_register_source 注册它及 color_source_info_v1~v3、slideshow_info 等。结构简单，完整体现 Source 从注册到渲染的闭环。","s":"plugins/image-source/image-source.c:368"},
+    {"q":"win-capture 插件提供了哪些 Windows 采集源？","a":"plugins/win-capture/ 提供游戏捕获（game-capture.c 注入钩子）、窗口捕获（window-capture.c）、显示器捕获（monitor-capture.c 的 BitBlt 与 duplicator-monitor-capture.c 的 DXGI 桌面复制）以及 DC 捕获，plugin-main.c 统一注册。部分路径借 libobs-winrt 的 Windows.Graphics.Capture 与共享纹理降低拷贝。","s":"plugins/win-capture/plugin-main.c"},
+    {"q":"win-dshow 与 win-wasapi 分别采集什么？","a":"win-dshow 基于 DirectShow 实现摄像头、采集卡等视频设备源（含 obs-dshow 子进程桥接），输出异步视频帧经 obs_source_output_video 入队。win-wasapi 基于 Windows Audio Session API 采集桌面音频与麦克风，把音频推入 obs_source_output_audio，经过滤与重采样进入树形混音。","s":"docs-analysis/02-模块划分.md §5"},
+    {"q":"obs-text 与 text-freetype2 插件如何提供文字源？","a":"text-freetype2/text-freetype2.c 用 FreeType 渲染文字为纹理；Windows 上 obs-text 家族另提供 GDI+ 实现。它们作为 Source 实现 video_render，把文本绘制到 GPU 纹理，可按 settings 中的字体、大小、颜色更新，是滤镜/场景常见的叠加元素。","s":"plugins/text-freetype2/text-freetype2.c"},
+    {"q":"vlc-video 插件如何扩展媒体播放能力？","a":"plugins/vlc-video/ 的 vlc-video-plugin.c 注册源，vlc-video-source.c 用 libVLC 播放网络流与多格式文件。它作为异步源在自身线程解码，产出 obs_source_frame 经 obs_source_output_video 上传为 GPU 纹理，并由 obs_source_output_audio 推送音频，弥补 FFmpeg 源在协议支持上的不足。","s":"plugins/vlc-video/vlc-video-source.c"},
+    {"q":"obs-ffmpeg 插件覆盖了哪些能力？","a":"plugins/obs-ffmpeg/ 功能最广：obs-ffmpeg-source.c 提供 FFmpeg 媒体源，obs-ffmpeg-nvenc.c/vaapi.c/openh264.c/av1.c 提供多种硬件与软件编码器，obs-ffmpeg-audio-encoders.c 提供 AAC/ALAC/FLAC/PCM 等音频编码，并含输出与 muxer 支持，是编码/采集混合型插件。","s":"plugins/obs-ffmpeg/obs-ffmpeg.c"},
+    {"q":"Linux 平台有哪些采集插件，各自对接什么后端？","a":"linux-capture 用 X11/Composite 抓屏与窗口；linux-pipewire（screencast-portal.c、camera-portal.c）经 PipeWire 门户抓屏与摄像头；linux-v4l2 对接 V4L2 设备；linux-alsa、linux-pulseaudio（pulse-input.c）、linux-jack 负责音频采集。它们共同覆盖 Linux 主流显示服务器与音频栈。","s":"plugins/linux-pipewire/linux-pipewire.c"},
+    {"q":"macOS 平台有哪些采集与编码插件？","a":"mac-capture/plugin-main.c 提供屏幕/窗口/系统音频采集，mac-avcapture 提供摄像头，mac-syphon 支持 Syphon 共享纹理；mac-videotoolbox/encoder.c 用 Apple VideoToolbox 做 H.264/HEVC 硬件编码，coreaudio-encoder 提供 AAC，mac-virtualcam 输出虚拟摄像头，覆盖采集、编码、输出三类。","s":"plugins/mac-capture/plugin-main.c"},
+    {"q":"obs-x264 编码器插件如何注册，提供什么能力？","a":"plugins/obs-x264/obs-x264-plugin-main.c 中 obs_module_load 注册 obs_x264_encoder 的 obs_encoder_info；obs-x264.c 封装 libx264，type=VIDEO、codec=H.264，实现 create/encode/destroy 与 get_video_info。它是 CPU 软件编码的代表，参数由 obs_properties（preset、crf、profile 等）声明。","s":"plugins/obs-x264/obs-x264-plugin-main.c"},
+    {"q":"obs-nvenc 与 obs-qsv11 硬件编码插件有何特点？","a":"obs-nvenc/obs-nvenc.c 与 nvenc.c 封装 NVIDIA NVENC，支持 H.264/HEVC/AV1，并可走 GPU 纹理直通零拷贝路径（gpu_encoder_queue）。obs-qsv11/obs-qsv11.c 封装 Intel QuickSync Video 并兼容 oneVPL。二者都以 obs_encoder_info 注册，依赖 obs-video-gpu-encode 的纹理输入。","s":"plugins/obs-nvenc/obs-nvenc.c"},
+    {"q":"obs-libfdk 与其他音频编码插件如何组织？","a":"plugins/obs-libfdk/obs-libfdk.c 用 Fraunhofer FDK-AAC 库提供高质量 AAC 编码，以 obs_encoder_info（type=AUDIO、codec=AAC）注册。它与 obs-ffmpeg 内置 AAC、macOS coreaudio-encoder 并存，用户按平台与许可选择；编码包由编码器回调送到输出交织队列。","s":"plugins/obs-libfdk/obs-libfdk.c"},
+    {"q":"obs-outputs 插件提供哪些输出类型？","a":"plugins/obs-outputs/obs-outputs.c 注册多种 obs_output_info：rtmp-stream.c 实现 RTMP 推流，flake-output.c 写 FLV/MP4/MOV/MKV/TS 录制，另有 SRT/RIST 输出与回放缓冲相关实现。这些输出通过 obs_output_set_service/编码器绑定，在 info.start 中建立连接、info.encoded_packet 中写出数据。","s":"plugins/obs-outputs/obs-outputs.c"},
+    {"q":"obs-webrtc 与虚拟摄像头输出插件做什么？","a":"obs-webrtc 实现 WHIP 协议把编码后的音视频以 WebRTC 推送到媒体服务器，走 obs_output 接口。mac-virtualcam 把视频帧送进 macOS 虚拟摄像头设备，供 Zoom 等第三方应用消费；Windows 的虚拟摄像头则由前端/驱动层配合。二者扩展了 OBS 输出的去向。","s":"docs-analysis/02-模块划分.md §5"},
+    {"q":"obs-filters 插件包含哪些典型滤镜，如何注册？","a":"plugins/obs-filters/obs-filters.c 批量注册大量 FILTER 型 Source：color-correction-filter.c 色彩校正、chroma-key-filter.c/color-key-filter.c 抠像、crop-filter.c 裁剪、sharpness-filter.c 锐化、noise-suppress-filter.c（RNNoise）降噪、compressor/limiter/expander/gain 音频处理、async-delay-filter.c 延迟等，均以 obs_source_info 实现 filter_video/filter_audio。","s":"plugins/obs-filters/obs-filters.c"},
+    {"q":"obs-transitions 与 obs-vst 插件分别提供什么？","a":"plugins/obs-transitions/obs-transitions.c 注册 fade、cut、slide、swipe、luma-wipe、stinger 等 TRANSITION 型源，实现 obs_transition_* 双纹理交叉淡化/擦除与音频淡化。obs-vst 是 VST 2.x 宿主，把外部 VST 音频插件包装成 FILTER 源接入音频滤镜链，扩展混音处理能力。","s":"plugins/obs-transitions/obs-transitions.c"},
+    {"q":"rtmp-services 插件如何管理服务列表与测速？","a":"plugins/rtmp-services/rtmp-services-main.c 从 services.json 读取 Twitch、YouTube 及自定义 RTMP 服务列表，向推流设置页提供服务器/推流密钥模板与推荐码率，并提供服务器测速（带宽探测）能力。它作为 Service 型插件通过 obs_service_info 的 get_url/get_key 为 rtmp_output 提供连接参数。","s":"plugins/rtmp-services/rtmp-services-main.c"},
+    {"q":"frontend-tools 插件如何为前端增加脚本与工具？","a":"frontend-tools 通过 obs-frontend-api 注册事件回调与工具菜单，提供输出计时器、自动场景切换（按场景名正则切换）以及 Lua/Python 脚本支持。脚本借 shared/obs-scripting 绑定到 libobs API，可读 settings、注册热键与定时回调，是无需重编译即可扩展 OBS 行为的主要途径。","s":"docs-analysis/02-模块划分.md §5"},
+    {"q":"专业采集卡插件 aja 与 decklink 如何融入插件体系？","a":"aja 与 decklink 插件提供专业采集卡的输入源，并有 aja-output-ui/decklink-output-ui 作为前端输出 UI 插件管理通道与设备属性；decklink-captions 处理字幕。它们同样以 *_info 注册 Source/Output，说明 OBS 把高端硬件也纳入统一的插件接口模型。","s":"docs-analysis/02-模块划分.md §5"},
+    {"q":"插件的 info 实现中 create/get_name/update 通常承担什么？","a":"以 *_info 虚表为例：get_name 返回界面显示名；create(settings, obj) 读取 obs_data 初始化插件私有 data 并挂到 context；update(data, settings) 在用户改设置时增量应用参数；video_render/filter_video 处理画面；destroy(data) 释放资源。核心只通过函数指针驱动，插件内部结构完全封装，体现接口与实现分离。","s":"docs-analysis/04-类图设计.md §2"}
+  ],
+  "util": [
+    {"q":"libobs/util 的 bmem.c 提供了什么，为何带泄漏计数？","a":"bmem.c 提供 bmalloc/bzalloc/brealloc/bfree 等内存封装，并在底座维护分配计数（如 bnum_allocs）。ozone/调试版本可借此在 obs_shutdown 时检测未释放内存并打日志告警，帮助定位插件或核心的泄漏，是 OBS 内建可观测性的一部分。","s":"docs-analysis/02-模块划分.md §2.5"},
+    {"q":"threading 原语层封装了哪些跨平台能力？","a":"libobs/util/threading*.c/h 统一 pthreads 与 Windows 线程差异，提供 pthread_mutex_init_recursive、os_atomic_* 原子操作、线程局部 THREAD_LOCAL、os_event/timer 等。signal.c、obs-canvas.c 广泛用递归锁与原子引用计数，保证多平台下线程同步代码一致。","s":"libobs/util/threading.h"},
+    {"q":"darray.h 与 deque.c 分别解决什么问题？","a":"darray.h 用宏实现类型安全的动态数组，提供 da_push_back/da_erase/da_find 与 DARRAY_INVALID，calldata、signal callbacks、obs->video.mixes 均基于它。deque.c 实现固定块双端队列，用于音频环形缓冲 audio_input_buf 等需要高效首尾插入/消费的场景。","s":"docs-analysis/02-模块划分.md §2.5"},
+    {"q":"dstr.c 的字符串封装有什么特点？","a":"dstr.h/.c 提供 struct dstr 动态字符串，支持 dstr_init/copy/printf/cat/free 等，按需 realloc 容量并跟踪 len，避免 C 字符串频繁手工分配与缓冲区溢出。它被配置、日志、信号名字处理等大量内部代码使用，是 util 层基础工具之一。","s":"docs-analysis/02-模块划分.md §2.5"},
+    {"q":"config-file.c 如何读写配置？","a":"config-file.c 实现 config_t：config_open/create 打开 ini 文件，config_get_string/int/bool 与 config_set_* 读写分节键值，config_save 写回磁盘。前端 basic.ini、场景集合与插件配置都基于它，与 obs_data 的 JSON 持久化形成互补的内存/文件配置方案。","s":"docs-analysis/02-模块划分.md §2.5"},
+    {"q":"blog 日志系统如何按级别输出？","a":"util/base.c 实现 blog(log_level, format, ...)，级别含 LOG_DEBUG/INFO/WARNING/ERROR。它把带时间戳的消息写到日志文件并回调前端（OBSApp 安装 handler）显示在日志面板，源码中大量 blog(LOG_ERROR,...) 用于初始化失败与容量异常诊断，是排障的主要依据。","s":"libobs/util/base.c"},
+    {"q":"platform 平台抽象层封装了哪些差异？","a":"libobs/util/platform.c 与 windows/、mac/、unix/ 子目录封装路径处理、动态库加载 os_dlopen/os_dlsym、时间 os_gettime_ns、进程/文件操作与系统信息。插件加载、高精度计时、跨平台文件路径都依赖它，使 libobs 上层代码无需关心操作系统细节。","s":"docs-analysis/02-模块划分.md §2.5"},
+    {"q":"profiler.c 与 source-profiler.c 如何观测性能？","a":"profiler.c 提供命名计时域（profile_store_name/start/end），热键线程名就用它标注采样周期。source-profiler.c 逐源统计 video_tick/video_render 与音频耗时及 GPU 计时，前端可在统计面板显示每个源的负担，帮助定位性能瓶颈，属于核心内建可观测性。","s":"docs-analysis/01-架构设计.md §8"},
+    {"q":"task.c 任务队列如何连接 UI 线程与图形线程？","a":"libobs/util/task.c（配合 obs-internal.h 的图形 deque tasks）实现 obs_queue_task(queue, func, data, wait)：把函数与参数入队，图形线程在 obs_graphics_thread_loop 的 execute_graphics_tasks 阶段取出执行，wait=true 时调用方阻塞等待。这样 UI 线程不直接调 gs_* API，避免跨线程破坏图形上下文。","s":"docs-analysis/01-架构设计.md §3.1"},
+    {"q":"shared 共享组件与构建/依赖体系如何支撑整体工程？","a":"shared/ 提供 properties-view（设置 UI 引擎）、media-playback（FFmpeg 解码播放）、obs-scripting（Lua/Python 绑定）、ipc-util/obs-shared-memory-queue/obs-inject-library（游戏捕获配套）等。构建由 CMakeLists.txt、CMakePresets.json、cmake/ 查找器、deps/ 子模块与 test/ 单测支撑，形成前后端与插件共用的基础设施。","s":"docs-analysis/02-模块划分.md §6"}
+  ],
+  "patterns": [
+    {"q":"OBS 运行时的三大常驻线程与工作线程全景是怎样的？","a":"常驻线程为图形线程 obs_graphics_thread（逐帧 tick/render/预览）、视频 IO 线程 video_thread（帧缓存分发）、音频线程 audio_thread（每 1024 采样混音），另有 UI 与热键线程。按需线程含每插件采集线程、obs-video-gpu-encode 的 GPU 编码线程、RTMP 发送/重连与 end_data_capture_thread。","s":"docs-analysis/01-架构设计.md §3"},
+    {"q":"为什么说 OBS 到处是生产者-消费者缓冲？","a":"异步视频帧队列（obs_source_output_video→async_textures）、音频环形缓冲 audio_input_buf、视频帧缓存 MAX_CACHE_SIZE=16、输出交织队列 interleaved_packets、输出延迟 obs-output-delay 都采用生产者-消费者模型。线程间只传递数据并配信号量/互斥，避免跨线程直接调用，队列满时复制上帧实现跳帧。","s":"docs-analysis/01-架构设计.md §8"},
+    {"q":"接口/虚表（策略模式）在 OBS 中如何体现？","a":"obs_source_info/obs_output_info/obs_encoder_info/obs_service_info 是纯 C 函数指针表：id + 回调 + flags。核心只依赖接口按 id 查找实例，插件提供实现，使 40+ 插件与 D3D11/OpenGL/Metal 三套后端互不感知，可独立替换与演进，是 OBS 解耦的基石。","s":"docs-analysis/04-类图设计.md §6"},
+    {"q":"组合式继承如何在纯 C 中模拟类继承？","a":"obs_source、obs_output、obs_encoder、obs_service、obs_canvas 都把 obs_context_data 作为首成员嵌入，复用 name/uuid/settings/signals/procs/control 等通用字段，实现类似基类继承的内存布局与强转。obs_scene 又复用 obs_source 作为本体，形成多层组合式继承。","s":"docs-analysis/04-类图设计.md §1"},
+    {"q":"注册表+工厂模式如何驱动对象创建？","a":"obs_register_source 等把 *_info 按 id 存入 obs_core 的 source_types/output_types 等数组；前端调用 obs_source_create/obs_output_create 等工厂按 id 查找 info，执行 info.create 实例化。注册表与工厂分离，使对象类型可扩展而无需修改核心创建逻辑。","s":"docs-analysis/04-类图设计.md §3"},
+    {"q":"观察者模式在核心与前端之间如何落地？","a":"signal_handler 是观察者模式核心：对象持 signal_handler_t，前端/插件用 signal_handler_connect(_ref) 订阅 start/stop、source create/destroy、channel_change 等信号，状态变化用 calldata 广播。obs-frontend-api 再向上层前端插件分发 obs_frontend_event，形成两级观察者链，避免轮询。","s":"docs-analysis/04-类图设计.md §6"},
+    {"q":"享元/共享引用模式如何安全管理对象？","a":"obs_weak_ref 同时维护强引用 refs 与弱引用 weak_refs：强引用归零触发 destroy；其他线程持 obs_weak_source/obs_weak_canvas 调 obs_weak_*_get_ref 原子地尝试复活强引用，失败即知对象已销毁。obs_sceneitem 只是变换容器，多个场景项共享同一源，减少重复资产。","s":"docs-analysis/04-类图设计.md §1"},
+    {"q":"代理模式在 obs_canvas 与弱句柄上如何体现？","a":"obs_canvas 代理了 obs_view 与 obs_core_video_mix，obs_set_output_source 被代理为 obs_canvas_set_channel(main_canvas,...)，对外维持旧语义；obs_weak_* 系列代理真实对象访问，通过 get_ref 判断是否可达。预览 obs_display 也代理原生窗口句柄给图形线程绘制。","s":"docs-analysis/04-类图设计.md §6"},
+    {"q":"模板方法模式如何体现在图形主循环中？","a":"obs_graphics_thread_loop 固定骨架：update_active_states→gs_begin_frame→tick_sources→output_frames（render_video→download→output_video_data）→render_displays→execute_graphics_tasks→video_sleep。各源的 video_tick/video_render 回调作为可替换步骤填充细节，框架控制流程、插件实现具体渲染。","s":"docs-analysis/01-架构设计.md §3.1"},
+    {"q":"零拷贝演进体现在哪些设计上？","a":"GPU 编码路径把 render_texture 直接入 obs_core_video_mix::gpu_encoder_queue，由 GPU 编码线程交 NVENC，跳过 CPU stagesurf 回读；win-capture 用 D3D11 共享句柄、mac-syphon 共享纹理、winrt Windows.Graphics.Capture 都减少 CPU 参与。双纹理乒乓隐藏 GPU→CPU 同步，是性能关键。","s":"docs-analysis/01-架构设计.md §8"}
+  ]
+};</script>
+<script>
+(() => {
+  const MODULES = [
+    {k:'arch',n:'架构总览',d:'分层 / 插件化 / 依赖方向',c:'#4cc2ff',g:'总览'},
+    {k:'core',n:'初始化与 obs_core',d:'全局核心 / 引用计数 / 注册表',c:'#4cc2ff',g:'libobs 核心对象'},
+    {k:'source',n:'Source 源系统',d:'四类源 / 同步异步 / 缓冲',c:'#4cc2ff',g:'libobs 核心对象'},
+    {k:'scene',n:'Scene 场景与场景项',d:'场景树 / 变换 / 共享',c:'#4cc2ff',g:'libobs 核心对象'},
+    {k:'transition',n:'Transition 转场',d:'双源切换 / 音视频混合',c:'#4cc2ff',g:'libobs 核心对象'},
+    {k:'filter',n:'Filter 滤镜',d:'滤镜链 / 前后处理',c:'#4cc2ff',g:'libobs 核心对象'},
+    {k:'video',n:'视频管线与图形线程',d:'tick / render / 回读 / 丢帧',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'audio',n:'音频管线与混音',d:'拉取式树形混音 / 6 轨',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'videoio',n:'视频 IO 与格式转换',d:'帧缓存 / 缩放 / 色彩矩阵',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'audioio',n:'音频 IO 与监听',d:'节拍 / 重采样 / 下溢',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'encoder',n:'Encoder 编码器',d:'编码回调 / 一编多出 / 零拷贝',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'output',n:'Output 输出',d:'交织队列 / 延迟 / 重连',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'service',n:'Service 流服务',d:'URL / 密钥 / 服务参数',c:'#57d9a3',g:'libobs 音视频管线'},
+    {k:'module',n:'插件框架',d:'动态加载 / 四类注册表',c:'#b28cff',g:'图形 / 插件 / 机制'},
+    {k:'graphics',n:'图形抽象层',d:'gs_* / effect / 数学库',c:'#b28cff',g:'图形 / 插件 / 机制'},
+    {k:'backend',n:'图形后端',d:'D3D11 / OpenGL / Metal / WinRT',c:'#b28cff',g:'图形 / 插件 / 机制'},
+    {k:'canvas',n:'画布 / 显示 / 热键',d:'33.x 多画布 / 64 通道',c:'#b28cff',g:'图形 / 插件 / 机制'},
+    {k:'callback',n:'信号 / 数据 / 属性',d:'signal / proc / obs_data',c:'#b28cff',g:'图形 / 插件 / 机制'},
+    {k:'frontend',n:'Qt 前端',d:'OBSApp / OBSBasic / 输出装配',c:'#ffb454',g:'前端与生态'},
+    {k:'plugins',n:'插件生态',d:'采集 / 编码 / 输出 / 滤镜',c:'#ffb454',g:'前端与生态'},
+    {k:'util',n:'基础设施与共享组件',d:'util / shared / 构建',c:'#ffb454',g:'前端与生态'},
+    {k:'patterns',n:'线程模型与设计模式',d:'并发 / 缓冲 / 虚表 / 工厂',c:'#ffb454',g:'前端与生态'}
+  ];
+
+  const DATA = Object.assign({}, window.QA_1, window.QA_2, window.QA_3, window.QA_4, window.QA_5);
+  const ITEMS = [];
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const hl = (s, q) => {
+    const safe = esc(s);
+    if (!q) return safe;
+    try {
+      const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+      return safe.replace(re, m => '<mark>' + m + '</mark>');
+    } catch (e) { return safe; }
+  };
+
+  const state = {q:'', mod:'', theme:localStorage.getItem('obs500-theme') || 'dark'};
+  let opened = new Set();
+  try { opened = new Set(JSON.parse(localStorage.getItem('obs500-opened') || '[]')); } catch(e) {}
+
+  document.documentElement.dataset.theme = state.theme;
+
+  // stats
+  document.getElementById('stats').innerHTML = [
+    ['500','组问答'], [MODULES.length,'个源码模块'],
+    [ITEMS.length || Object.values(DATA).reduce((a,b)=>a+b.length,0),'条已收录'],
+    ['3','大常驻线程'], ['4','类插件对象']
+  ].map(([b,s]) => `<div class="stat"><b>${b}</b><span>${s}</span></div>`).join('');
+
+  // sidebar
+  const sb = document.getElementById('sidebar');
+  let lastGroup = '';
+  sb.innerHTML = `<button class="chip active" data-mod=""><span class="dot" style="--c:var(--accent)"></span>全部模块<span class="n">500</span></button>` +
+    MODULES.map(m => {
+      let h = '';
+      if (m.g !== lastGroup) { h = `<h3>${m.g}</h3>`; lastGroup = m.g; }
+      return h + `<button class="chip" data-mod="${m.k}"><span class="dot" style="--c:${m.c}"></span>${m.n}<span class="n">${DATA[m.k].length}</span></button>`;
+    }).join('');
+
+  // qa cards
+  const list = document.getElementById('qa-list');
+  let id = 0;
+  list.innerHTML = MODULES.map(m => {
+    const cards = DATA[m.k].map(x => {
+      id++;
+      const rec = {id, mod:m.k, q:x.q, a:x.a, s:x.s, el:null};
+      ITEMS.push(rec);
+      return `<details class="qa" data-id="${id}" ${opened.has(id)?'open':''}>
+        <summary><span class="num">${String(id).padStart(3,'0')}</span><span class="qq">${esc(x.q)}</span><span class="chev">▶</span></summary>
+        <div class="ans"><p class="aa">${esc(x.a)}</p><div class="src ss">${esc(x.s)}</div></div>
+      </details>`;
+    }).join('');
+    return `<section class="mod" id="m-${m.k}" style="--c:${m.c}">
+      <div class="mod-head"><span class="dot"></span><h2>${m.n}</h2><span class="desc">${m.d}</span><span class="spacer"></span><span class="cnt">${DATA[m.k].length} 问</span></div>
+      <div class="cards">${cards}</div>
+    </section>`;
+  }).join('');
+
+  ITEMS.forEach(rec => { rec.el = document.querySelector(`.qa[data-id="${rec.id}"]`); });
+
+  function updateOpened() {
+    document.getElementById('opened').textContent = opened.size;
+    document.getElementById('progress').style.width = (opened.size / ITEMS.length * 100) + '%';
+  }
+  list.addEventListener('toggle', e => {
+    if (!e.target.matches('.qa')) return;
+    const n = Number(e.target.dataset.id);
+    if (e.target.open) opened.add(n); else opened.delete(n);
+    localStorage.setItem('obs500-opened', JSON.stringify([...opened]));
+    updateOpened();
+  }, true);
+  updateOpened();
+
+  function applyFilter() {
+    const q = state.q.trim().toLowerCase(), mod = state.mod;
+    let shown = 0;
+    MODULES.forEach(m => {
+      const sec = document.getElementById('m-' + m.k);
+      let n = 0;
+      ITEMS.filter(r => r.mod === m.k).forEach(r => {
+        const ok = (!mod || mod === m.k) && (!q || (r.q + ' ' + r.a + ' ' + r.s).toLowerCase().includes(q));
+        r.el.hidden = !ok;
+        if (ok) {
+          n++;
+          r.el.querySelector('.qq').innerHTML = hl(r.q, state.q.trim());
+          r.el.querySelector('.aa').innerHTML = hl(r.a, state.q.trim());
+          r.el.querySelector('.ss').innerHTML = hl(r.s, state.q.trim());
+        }
+      });
+      sec.hidden = n === 0;
+      sec.querySelector('.cnt').textContent = (q || mod) ? `${n} / ${DATA[m.k].length} 问` : `${DATA[m.k].length} 问`;
+      shown += n;
+    });
+    document.getElementById('result').innerHTML = `显示 <b>${shown}</b> / 500 组问答${state.mod ? ' · 已按模块筛选' : ''}${state.q ? ' · 已按关键词筛选' : ''}`;
+  }
+
+  const input = document.getElementById('search');
+  input.addEventListener('input', () => { state.q = input.value; applyFilter(); });
+  document.addEventListener('keydown', e => {
+    if (e.key === '/' && document.activeElement !== input) { e.preventDefault(); input.focus(); }
+    if (e.key === 'Escape' && document.activeElement === input) { input.value=''; state.q=''; applyFilter(); input.blur(); }
+  });
+
+  sb.addEventListener('click', e => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    state.mod = b.dataset.mod;
+    sb.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c === b));
+    applyFilter();
+    document.getElementById('qa').scrollIntoView({behavior:'smooth'});
+  });
+
+  document.getElementById('expandAll').onclick = () => {
+    ITEMS.forEach(r => { if (!r.el.hidden) { r.el.open = true; opened.add(r.id); } });
+    localStorage.setItem('obs500-opened', JSON.stringify([...opened])); updateOpened();
+  };
+  document.getElementById('collapseAll').onclick = () => {
+    ITEMS.forEach(r => { r.el.open = false; opened.delete(r.id); });
+    localStorage.setItem('obs500-opened', JSON.stringify([...opened])); updateOpened();
+  };
+  document.getElementById('theme').onclick = () => {
+    state.theme = state.theme === 'dark' ? 'light' : 'dark';
+    document.documentElement.dataset.theme = state.theme;
+    localStorage.setItem('obs500-theme', state.theme);
+    if (window.mermaid) { mermaid.initialize({startOnLoad:false, theme:state.theme==='light'?'default':'dark', securityLevel:'loose'}); renderDiagram(currentDiagram); }
+  };
+
+  // animated pipeline
+  const pipe = document.getElementById('pipe');
+  let playing = true;
+  document.getElementById('animToggle').onclick = e => {
+    playing = !playing;
+    if (playing) { pipe.unpauseAnimations(); e.target.textContent = '暂停动画'; }
+    else { pipe.pauseAnimations(); e.target.textContent = '播放动画'; }
+  };
+
+  // mermaid diagrams
+  const DIAGRAMS = [
+    {t:'启动与初始化', code:`sequenceDiagram
+  autonumber
+  participant M as main()<br/>obs-main.cpp
+  participant APP as OBSApp
+  participant CORE as libobs<br/>obs.c
+  participant B as OBSBasic
+  participant PM as PluginManager
+  participant MOD as 插件动态库
+  M->>M: 解析命令行 / 日志 / 单实例检查
+  M->>APP: 构造 OBSApp，加载配置与主题
+  M->>APP: OBSInit()
+  APP->>CORE: obs_startup(locale, config_path, store)
+  CORE->>CORE: 初始化 obs_core(video/audio/data/hotkeys)
+  APP->>B: new OBSBasic() + OBSInit()
+  B->>CORE: obs_reset_audio
+  B->>CORE: obs_reset_video
+  CORE-->>B: OBS_VIDEO_SUCCESS（图形线程常驻）
+  B->>PM: LoadModules()
+  PM->>CORE: obs_add_module_path + obs_load_all_modules()
+  loop 每个插件
+    CORE->>MOD: os_dlopen + obs_init_module
+    MOD->>CORE: obs_register_source/output/encoder/service
+  end
+  PM->>CORE: obs_post_load_modules()
+  B->>B: 加载场景集合，obs_set_output_source(0, transition)
+  B-->>M: 显示主窗口，进入 Qt 事件循环`},
+    {t:'开始推流', code:`sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant B as OBSBasic
+  participant OH as BasicOutputHandler
+  participant SVC as obs_service
+  participant ENC as obs_encoder
+  participant OUT as obs_output
+  participant CORE as libobs 管线
+  U->>B: 点击“开始推流”
+  B->>B: 检查授权 / 输出状态
+  B->>OH: SetupStreaming(service, callback)
+  OH->>OH: 按设置创建或更新编码器与服务
+  B->>OH: StartStreaming(service)
+  OH->>OUT: set_service / set_video_encoder / set_audio_encoder
+  OH->>OUT: obs_output_start(output)
+  OUT->>SVC: obs_service_initialize（URL / 密钥）
+  OUT->>ENC: obs_encoder_initialize + obs_encoder_start
+  ENC->>CORE: 注册 raw video/audio 回调
+  OUT->>OUT: info.start() → RTMP 连接
+  OUT-->>B: signal starting → start
+  Note over CORE: 此后每帧自动流向编码器与输出`},
+    {t:'视频帧管线（每帧）', code:`sequenceDiagram
+  autonumber
+  participant CAP as 异步采集源（插件线程）
+  participant GT as 图形线程<br/>obs-video.c
+  participant SRC as 源树<br/>转场→场景→源
+  participant VIO as 视频IO线程
+  participant ENC as 视频编码器
+  participant OUT as 输出
+  CAP->>SRC: obs_source_output_video(frame) 入 async 队列
+  loop 每帧 ≈16.7ms@60FPS
+    GT->>GT: update_active_states / gs_begin_frame
+    GT->>SRC: tick_sources → video_tick（上传 GPU 纹理）
+    GT->>SRC: render_video(mix) 递归渲染 + 滤镜链
+    GT->>GT: RGBA→NV12/I420 转换，stagesurf 回读上一帧
+    GT->>VIO: video_output_frame 入帧缓存(≤16)，post 信号量
+    GT->>GT: render_displays() 预览，video_sleep 到下一帧
+  end
+  VIO->>VIO: video_output_cur_frame 取帧（满则复制上帧→跳帧）
+  VIO->>ENC: receive_video → do_encode
+  ENC->>ENC: info.encode() 产出 encoder_packet
+  ENC->>OUT: send_off_encoder_packet
+  OUT->>OUT: 交织队列按 DTS 排序
+  OUT->>OUT: info.encoded_packet() → RTMP / 文件`},
+    {t:'音频混音（每 1024 采样）', code:`sequenceDiagram
+  autonumber
+  participant WAS as 音频采集(win-wasapi 等)
+  participant SRC as obs_source 音频缓冲
+  participant AT as 音频线程<br/>audio-io.c
+  participant AC as audio_callback<br/>obs-audio.c
+  participant TREE as 音频源树
+  participant ENC as 音频编码器
+  participant OUT as 输出
+  WAS->>SRC: obs_source_output_audio(data)
+  SRC->>SRC: filter_audio → 重采样 → audio_input_buf
+  loop 每 1024 采样 ≈21.3ms@48kHz
+    AT->>AC: audio_callback(start_ts, end_ts, mixers)
+    AC->>TREE: 对音频源树做引用快照
+    AC->>SRC: 叶子源按时间戳取样本 → audio_output_buf
+    AC->>TREE: 父节点 audio_render 混音 / 转场淡化
+    AC->>AC: 各通道最终混音(≤6 轨)
+    AC-->>AT: 返回 mixes[]
+    AT->>ENC: 分发到音频编码器 / raw 输出
+    ENC->>OUT: 编码包 → 交织队列
+    AT->>AT: 同时送 audio_monitor 监听
+  end`},
+    {t:'场景切换（转场）', code:`sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant B as OBSBasic
+  participant TR as 转场源<br/>obs-source-transition.c
+  participant OLD as 旧场景
+  participant NEW as 新场景
+  U->>B: 点击新场景
+  B->>TR: obs_transition_start(tr, mode, ms, new_scene)
+  TR->>OLD: 记录为 transition_sources[0]
+  TR->>NEW: 记录为 transition_sources[1]，activate
+  loop 转场期间每帧
+    TR->>OLD: video_render → texrender[0]
+    TR->>NEW: video_render → texrender[1]
+    TR->>TR: 按进度混合两纹理，音频交叉淡化
+  end
+  TR->>OLD: 结束：deactivate
+  TR->>NEW: 成为当前显示源（直通）
+  TR-->>B: signal transition_stop`},
+    {t:'停止推流与关闭', code:`sequenceDiagram
+  autonumber
+  participant U as 用户
+  participant B as OBSBasic
+  participant OUT as obs_output
+  participant ENC as obs_encoder
+  participant CORE as libobs
+  participant APP as OBSApp
+  U->>B: 点击“停止推流”
+  B->>OUT: obs_output_stop(output)
+  OUT->>OUT: 等待交织队列排空(end_data_capture_thread)
+  OUT->>ENC: obs_encoder_stop
+  ENC->>CORE: 从 video/audio 注销回调
+  OUT->>OUT: info.stop(ts) 断开 RTMP / 写文件尾
+  OUT-->>B: signal stop(code)
+  U->>APP: 关闭主窗口
+  APP->>B: 停止输出，保存场景集合与配置
+  APP->>CORE: 释放所有对象引用 → obs_shutdown()
+  CORE->>CORE: 停止图形/音频/视频IO/热键线程
+  CORE->>CORE: 销毁残留对象，卸载插件，释放图形设备
+  APP-->>U: 进程退出`}
+  ];
+
+  const tabs = document.getElementById('dgTabs');
+  tabs.innerHTML = DIAGRAMS.map((d,i) => `<button class="tab${i===0?' active':''}" data-i="${i}">${d.t}</button>`).join('');
+  let currentDiagram = 0, mermaidReady = !!window.mermaid;
+  if (mermaidReady) mermaid.initialize({startOnLoad:false, theme:state.theme==='light'?'default':'dark', securityLevel:'loose'});
+
+  async function renderDiagram(i) {
+    currentDiagram = i;
+    const box = document.getElementById('diagram');
+    tabs.querySelectorAll('.tab').forEach((b,j) => b.classList.toggle('active', j===i));
+    if (!mermaidReady) {
+      box.innerHTML = '<p class="mermaid-note">当前离线，Mermaid 未加载；下方显示时序图源码文本。完整渲染版可查看 docs-analysis/03-软件时序图.md（支持 Mermaid 的查看器）。</p><pre class="raw">' + esc(DIAGRAMS[i].code) + '</pre>';
+      return;
+    }
+    try {
+      const {svg} = await mermaid.render('dg-' + i + '-' + Date.now(), DIAGRAMS[i].code);
+      box.innerHTML = svg;
+    } catch (e) {
+      box.innerHTML = '<p class="mermaid-note">渲染失败：' + esc(e.message) + '</p><pre class="raw">' + esc(DIAGRAMS[i].code) + '</pre>';
+    }
+  }
+  tabs.addEventListener('click', e => { const b=e.target.closest('.tab'); if(b) renderDiagram(Number(b.dataset.i)); });
+  renderDiagram(0);
+
+  // scroll to top
+  const toTop = document.getElementById('toTop');
+  window.addEventListener('scroll', () => toTop.classList.toggle('show', window.scrollY > 600));
+  toTop.onclick = () => window.scrollTo({top:0, behavior:'smooth'});
+
+  applyFilter();
+})();
+</script>
+</body>
+</html>

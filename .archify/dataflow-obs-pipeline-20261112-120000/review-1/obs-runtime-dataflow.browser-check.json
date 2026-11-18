@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "browser-check",
+  "evidenceKind": "automated-browser",
+  "status": "fail",
+  "visualReview": "not-requested",
+  "provenance": "failed",
+  "artifact": {
+    "path": "E:\\code\\obs\\obs-AI\\obs-studio-33.0.1\\docs-analysis\\diagrams\\obs-runtime-dataflow.html",
+    "sha256": "aefb8d8b5330a4aee08c95722dc48c0ed5f7f7762219813054aea004664cfd79",
+    "bytes": 831532
+  },
+  "error": "A delivery attempt is unfinished or failed; complete a successful deliver before trusting this artifact.",
+  "diagnostics": [
+    {
+      "code": "delivery/provenance-failed",
+      "severity": "error",
+      "message": "A delivery attempt is unfinished or failed; complete a successful deliver before trusting this artifact.",
+      "subject": {
+        "artifact": "E:\\code\\obs\\obs-AI\\obs-studio-33.0.1\\docs-analysis\\diagrams\\obs-runtime-dataflow.html",
+        "provenance": "E:\\code\\obs\\obs-AI\\obs-studio-33.0.1\\docs-analysis\\diagrams\\obs-runtime-dataflow.delivery.json"
+      },
+      "evidence": {
+        "pendingJournal": "E:\\code\\obs\\obs-AI\\obs-studio-33.0.1\\docs-analysis\\diagrams\\obs-runtime-dataflow.delivery-pending.json",
+        "found": true
+      },
+      "supportedFixes": [
+        "finish any active delivery, then rerun deliver successfully; retain the pending journal until recovery succeeds"
+      ]
+    }
+  ],
+  "containment": {
+    "status": "fail",
+    "policy": "fit-or-reader-declared-readable-vertical-scroll",
+    "viewports": []
+  },
+  "captures": {
+    "status": "not-requested",
+    "screenshots": [],
+    "contactSheet": null
+  },
+  "sidecars": {
+    "directory": "E:\\code\\obs\\obs-AI\\.archify\\dataflow-obs-pipeline-20261112-120000\\review-1",
+    "receipt": "obs-runtime-dataflow.browser-check.json",
+    "files": []
+  }
+}
