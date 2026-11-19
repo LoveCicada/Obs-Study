@@ -57,8 +57,19 @@ Expand-Archive (Join-Path $root "OBS-Studio-33.0.1-Windows-x64-PDBs.zip") -Desti
 
 ### 1. 打开源码
 
-1. 启动 VS 2022，**文件 → 打开 → 文件夹**，选择 `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
-2. 首次在本机执行 `obs-runtime-33.0.1/setup-vs-debug.ps1`，将仓库内的 [launch.vs.json](../obs-runtime-33.0.1/launch.vs.json) 复制到 `obs-studio-33.0.1/.vs/launch.vs.json`（脚本会按当前克隆路径改写其中的工作区根目录）。
+1. 启动 **VS 2022 或 VS 2026**，**文件 → 打开 → 文件夹**，选择 `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
+2. 首次在本机执行安装脚本（脚本会按当前克隆路径改写模板中的工作区根，并写入 **`obs-studio-33.0.1/.vs/launch.vs.json`**）：
+
+   ```powershell
+   # VS 2026 或工具栏未出现启动项时，推荐模板：
+   .\obs-runtime-33.0.1\setup-vs-debug.ps1 -Template launch.vs2026.json
+
+   # 沿用旧版 launch.vs.json 模板：
+   .\obs-runtime-33.0.1\setup-vs-debug.ps1
+   ```
+
+   **不要使用 `launch.json`**：那是 **VS Code / Cursor** 的配置名。Visual Studio「打开文件夹」只识别 **`launch.vs.json`**（位于代码根目录或 **`.vs/`** 下）。
+
 3. 安装后的启动配置包含：
    - 启动项：`OBS 33.0.1 官方二进制 (GitHub PDB)`
    - 可执行文件：`obs-runtime-33.0.1/install/bin/64bit/obs64.exe`
@@ -99,6 +110,16 @@ PDB 内记录的路径来自 GitHub Actions 构建机（常为 `D:\a\obs-studio\
 | libobs 初始化 | `libobs/obs.c` / `obs-app` 相关 | 核心初始化 |
 
 使用 `launch.vs.json` **F5** 启动，或在 OBS 已运行时 **调试 → 附加到进程 → obs64.exe**。
+
+### 6. Visual Studio 2026 与迁移
+
+| 现象 | 处理 |
+| --- | --- |
+| 拷贝模板后改名为 `launch.json` | 改回安装为 `.vs/launch.vs.json` |
+| 从 VS 2022 迁移后无启动项 / 调试适配器异常 | 关闭 VS，删除 `obs-studio-33.0.1/.vs` 后重新运行 `setup-vs-debug.ps1` |
+| 工具栏未见启动项 | **解决方案资源管理器 → 显示所有文件**，确认 `.vs/launch.vs.json` 存在；启动项下拉选 **「OBS 33.0.1 官方二进制 (GitHub PDB)」** |
+
+VS 2026 与 VS 2022 共用同一 **`launch.vs.json`** schema（`version: 0.2.1`），无 `launch.vs2026.json` 官方文件名。仓库中的 [launch.vs2026.json](../obs-runtime-33.0.1/launch.vs2026.json) 仅为经整理的模板，须由脚本或手动复制为 `.vs/launch.vs.json` 后才会被 IDE 加载。
 
 命令行替代：
 

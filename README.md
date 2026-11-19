@@ -87,8 +87,8 @@ obs-studio-33.0.1/
 
 1. **下载**：`Windows-x64.zip` 与 `Windows-x64-PDBs.zip`（见上表），或复用 [obs-runtime-33.0.1/](obs-runtime-33.0.1/) 中已下载的 zip。
 2. **部署**：将两份 zip 解压到同一根目录（本仓库默认 `obs-runtime-33.0.1/install/`），使 `bin/64bit/obs64.pdb` 与 `obs64.exe`、`obs.pdb` 与 `obs.dll` 位于同一目录。
-3. **打开工程**：VS 2022 → **文件 → 打开 → 文件夹** → `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
-4. **启动配置**：首次在本机运行 `obs-runtime-33.0.1/setup-vs-debug.ps1`，将 [launch.vs.json](obs-runtime-33.0.1/launch.vs.json) 安装到 `obs-studio-33.0.1/.vs/`（该路径受官方源码 `.gitignore` 排除，仓库内以 `obs-runtime` 副本为准）。
+3. **打开工程**：VS 2022 / VS 2026 → **文件 → 打开 → 文件夹** → `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
+4. **启动配置**：首次在本机运行 `obs-runtime-33.0.1/setup-vs-debug.ps1`（VS 2026 推荐 `-Template launch.vs2026.json`），将模板安装为 `obs-studio-33.0.1/.vs/launch.vs.json`。Visual Studio **不**识别 `launch.json`（那是 VS Code 用法）；2022 与 2026 均使用 **`launch.vs.json`**。详见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)。
 5. **启动调试**：工具栏启动项选 **「OBS 33.0.1 官方二进制 (GitHub PDB)」**，按 F5。
 6. **符号路径**（若未走 launch 配置）：**工具 → 选项 → 调试 → 符号**，添加 `obs-runtime-33.0.1/install`；或环境变量 `_NT_SYMBOL_PATH=SRV*https://msdl.microsoft.com/download/symbols;<工作区>/obs-runtime-33.0.1/install`。
 7. **验证**：**调试 → 窗口 → 模块** 中 `obs64.exe`、`obs.dll` 应为「已加载符号」；或运行 `obs-runtime-33.0.1/verify-symbols.ps1`（`SymType=SymPdb` 表示 PDB 可用）。
