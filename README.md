@@ -10,6 +10,7 @@
 | 版本 | 33.0.1 |
 | 官方仓库 | <https://github.com/obsproject/obs-studio> |
 | **本源码下载地址** | <https://github.com/obsproject/obs-studio/archive/refs/tags/33.0.1.zip> |
+| **编译用完整源码（推荐）** | `git clone --recursive` + `git checkout 33.0.1`（zip 归档**不含** git 子模块，见 [07-Windows编译指南.md](docs-analysis/07-Windows编译指南.md)） |
 | 许可证 | GPL-2.0-or-later（见 [COPYING](obs-studio-33.0.1/COPYING)） |
 | 官方文档 | <https://obsproject.com/docs>（源码内 Sphinx 文档位于 [docs/sphinx/](obs-studio-33.0.1/docs/sphinx/)） |
 
@@ -77,6 +78,7 @@ obs-studio-33.0.1/
 | [04-类图设计.md](docs-analysis/04-类图设计.md) | libobs 核心对象结构体"类图"、插件接口（info 结构）、场景树、前端 Qt 类关系 |
 | [05-动态数据流可视化.md](docs-analysis/05-动态数据流可视化.md) | 运行时数据流动态图（HTML）的说明与入口 |
 | [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md) | GitHub 发行版 PDB 下载、本机部署与 Visual Studio 调试步骤 |
+| [07-Windows编译指南.md](docs-analysis/07-Windows编译指南.md) | Windows 上按版本编译 OBS：依赖来源、CMake Preset、验收与排错 |
 
 > 动态可视化页面（含流动动画的数据流图）由分析工具生成，入口见
 > [docs-analysis/05-动态数据流可视化.md](docs-analysis/05-动态数据流可视化.md)。
@@ -88,7 +90,7 @@ obs-studio-33.0.1/
 1. **下载**：`Windows-x64.zip` 与 `Windows-x64-PDBs.zip`（见上表），或复用 [obs-runtime-33.0.1/](obs-runtime-33.0.1/) 中已下载的 zip。
 2. **部署**：将两份 zip 解压到同一根目录（本仓库默认 `obs-runtime-33.0.1/install/`），使 `bin/64bit/obs64.pdb` 与 `obs64.exe`、`obs.pdb` 与 `obs.dll` 位于同一目录。
 3. **打开工程**：VS 2022 / VS 2026 → **文件 → 打开 → 文件夹** → `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
-4. **启动配置**：首次在本机运行 `obs-runtime-33.0.1/setup-vs-debug.ps1`（VS 2026 推荐 `-Template launch.vs2026.json`），将模板安装为 `obs-studio-33.0.1/.vs/launch.vs.json`。Visual Studio **不**识别 `launch.json`（那是 VS Code 用法）；2022 与 2026 均使用 **`launch.vs.json`**。详见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)。
+4. **启动配置**：运行 `obs-runtime-33.0.1/setup-vs-debug.ps1`，将 **`type: "default"`** 的 [launch.vs.json](obs-runtime-33.0.1/launch.vs.json) 安装到 `obs-studio-33.0.1/.vs/launch.vs.json`（勿用 `cppdbg` / `launch.json`）。修改模板后须重装并**重启 VS**。详见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md) 排错小节。
 5. **启动调试**：工具栏启动项选 **「OBS 33.0.1 官方二进制 (GitHub PDB)」**，按 F5。
 6. **符号路径**（若未走 launch 配置）：**工具 → 选项 → 调试 → 符号**，添加 `obs-runtime-33.0.1/install`；或环境变量 `_NT_SYMBOL_PATH=SRV*https://msdl.microsoft.com/download/symbols;<工作区>/obs-runtime-33.0.1/install`。
 7. **验证**：**调试 → 窗口 → 模块** 中 `obs64.exe`、`obs.dll` 应为「已加载符号」；或运行 `obs-runtime-33.0.1/verify-symbols.ps1`（`SymType=SymPdb` 表示 PDB 可用）。
@@ -107,18 +109,29 @@ Expand-Archive (Join-Path $root "OBS-Studio-33.0.1-Windows-x64-PDBs.zip") -Desti
 
 源码路径映射、符号范围与 CI 发布说明见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)。
 
-## 快速构建（参考官方 CI）
+## Windows 从源码构建（摘要 · 33.0.1）
+
+**可以直接用 CMake Preset 构建**；Qt6 / FFmpeg 等大依赖不必手找源码 — Configure 时按 [`CMakePresets.json`](obs-studio-33.0.1/CMakePresets.json) 自动下载 **obs-deps**、**Qt6**、**CEF** 到 `obs-studio-33.0.1/.deps/`。
+
+1. **源码**：`git clone --recursive` 并 `git checkout 33.0.1`（本仓库 zip 副本缺子模块，不能直接完整编译）。
+2. **工具**：CMake ≥ 3.28；Visual Studio 与 preset 一致（33.0.1 为 **Visual Studio 18 2026**，见 07 文档）。
+3. **配置与编译**（VS 2026，一键脚本）：
 
 ```powershell
-# Windows（需先安装 Qt6、FFmpeg 预编译依赖，详见官方 Wiki）
-cmake --preset windows-x64
-cmake --build --preset windows-x64
+# 仓库根目录
+.\scripts\build-obs-windows-RelWithDebInfo.ps1   # 日常 / 接近官方
+.\scripts\build-obs-windows-Debug.ps1            # 深度调试
 ```
 
-官方构建指南：<https://github.com/obsproject/obs-studio/wiki/Install-Instructions>
+手工等价命令与参数说明：[scripts/README.md](scripts/README.md)、[07-Windows编译指南.md](docs-analysis/07-Windows编译指南.md)。
+
+4. **成功标志**：Configure 日志中 obs-deps / Qt6 等为 `done`；生成 `obs64.exe`（常在 `build_x64/rundir`）。
+5. **细节与排错**（依赖三层、手动 `CMAKE_PREFIX_PATH`、与发行版 PDB 对比）：[07-Windows编译指南.md](docs-analysis/07-Windows编译指南.md)。
+
+仅安装官方已编译包（非从源码构建）：<https://github.com/obsproject/obs-studio/wiki/Install-Instructions>
 
 ## 说明
 
 - 工作区根目录的 `README.md` 与 `docs-analysis/` 为本地新增的中文分析材料，非官方源码内容；源码目录 `obs-studio-33.0.1/` 仅保留官方源码；
-- 根目录 README 汇总 **33.0.1 发行版下载链接** 与 **VS + PDB 调试入口**；更细的步骤与踩坑见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)；
+- 根目录 README 汇总 **发行版下载**、**PDB 调试** 与 **Windows 编译摘要**；详解见 [06-官方PDB与VS调试.md](docs-analysis/06-官方PDB与VS调试.md)、[07-Windows编译指南.md](docs-analysis/07-Windows编译指南.md)；
 - 官方原始说明见 [README.rst](obs-studio-33.0.1/README.rst)。

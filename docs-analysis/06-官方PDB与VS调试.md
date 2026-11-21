@@ -57,18 +57,16 @@ Expand-Archive (Join-Path $root "OBS-Studio-33.0.1-Windows-x64-PDBs.zip") -Desti
 
 ### 1. 打开源码
 
-1. 启动 **VS 2022 或 VS 2026**，**文件 → 打开 → 文件夹**，选择 `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
-2. 首次在本机执行安装脚本（脚本会按当前克隆路径改写模板中的工作区根，并写入 **`obs-studio-33.0.1/.vs/launch.vs.json`**）：
+1. 启动 **VS 2022**（或更新版本），**文件 → 打开 → 文件夹**，选择 `obs-studio-33.0.1/`（含 `CMakeLists.txt`）。
+2. 首次在本机执行安装脚本（将 [launch.vs.json](../obs-runtime-33.0.1/launch.vs.json) 写入 **`obs-studio-33.0.1/.vs/launch.vs.json`**，并替换其中的 `__REPO_ROOT__`）：
 
    ```powershell
-   # VS 2026 或工具栏未出现启动项时，推荐模板：
-   .\obs-runtime-33.0.1\setup-vs-debug.ps1 -Template launch.vs2026.json
-
-   # 沿用旧版 launch.vs.json 模板：
    .\obs-runtime-33.0.1\setup-vs-debug.ps1
    ```
 
-   **不要使用 `launch.json`**：那是 **VS Code / Cursor** 的配置名。Visual Studio「打开文件夹」只识别 **`launch.vs.json`**（位于代码根目录或 **`.vs/`** 下）。
+   - Visual Studio 只识别 **`launch.vs.json`**（位于所打开文件夹根目录或 **`.vs/`** 下），**不要**使用 `launch.json`（那是 VS Code / Cursor 的文件名）。
+   - 本模板对官方二进制使用 **`"type": "default"`**，`project` 指向相对路径 `../obs-runtime-33.0.1/install/bin/64bit/obs64.exe`（见 [微软说明](https://learn.microsoft.com/en-us/visualstudio/ide/customize-build-and-debug-tasks-in-visual-studio?view=vs-2022)）。
+   - 修改模板或克隆到新路径后，**务必重跑** `setup-vs-debug.ps1`，并**完全重启 VS**。
 
 3. 安装后的启动配置包含：
    - 启动项：`OBS 33.0.1 官方二进制 (GitHub PDB)`
@@ -111,15 +109,15 @@ PDB 内记录的路径来自 GitHub Actions 构建机（常为 `D:\a\obs-studio\
 
 使用 `launch.vs.json` **F5** 启动，或在 OBS 已运行时 **调试 → 附加到进程 → obs64.exe**。
 
-### 6. Visual Studio 2026 与迁移
+### 6. 启动项不显示（排错）
 
-| 现象 | 处理 |
+| 现象 | 原因与处理 |
 | --- | --- |
-| 拷贝模板后改名为 `launch.json` | 改回安装为 `.vs/launch.vs.json` |
-| 从 VS 2022 迁移后无启动项 / 调试适配器异常 | 关闭 VS，删除 `obs-studio-33.0.1/.vs` 后重新运行 `setup-vs-debug.ps1` |
-| 工具栏未见启动项 | **解决方案资源管理器 → 显示所有文件**，确认 `.vs/launch.vs.json` 存在；启动项下拉选 **「OBS 33.0.1 官方二进制 (GitHub PDB)」** |
-
-VS 2026 与 VS 2022 共用同一 **`launch.vs.json`** schema（`version: 0.2.1`），无 `launch.vs2026.json` 官方文件名。仓库中的 [launch.vs2026.json](../obs-runtime-33.0.1/launch.vs2026.json) 仅为经整理的模板，须由脚本或手动复制为 `.vs/launch.vs.json` 后才会被 IDE 加载。
+| 工具栏为 **「选择启动项…」**，配置显示 **「无配置」** | 多为 `launch.vs.json` 使用了 **`type: "cppdbg"`**（仅适用于远程/WSL，见 [CMake 调试文档](https://learn.microsoft.com/en-us/cpp/build/configure-cmake-debugging-sessions?view=msvc-170)）。本地 Windows 官方便携 exe 应使用 **`type: "default"`**，且 `project` 为 **exe 相对路径**，不要用 `CMakeLists.txt` + `program`。重跑 `setup-vs-debug.ps1` 后重启 VS。 |
+| 修改了 `obs-runtime/launch.vs.json` 但未安装到 `.vs/` | 仅编辑仓库模板不会生效；须运行 `setup-vs-debug.ps1`。 |
+| CMake 未 Configure | 调试官方 exe **不必**成功 Configure；「无配置」可忽略。若要 F5 自编译 `obs-studio`，再选 `windows-x64` Preset 并生成。 |
+| 仍无下拉项 | **调试 → 调试和启动设置** 打开 `launch.vs.json` 保存一次；或关闭 VS 删除 `obs-studio-33.0.1/.vs` 后重装配置。 |
+| `../obs-runtime/...` 仍无法启动 | 少数环境下 VS 不解析文件夹外 exe；改用 **调试 → 其他调试目标 → 调试已启动的 executable**，手动选 `install/bin/64bit/obs64.exe`（工作目录设为同目录）。 |
 
 命令行替代：
 
@@ -138,5 +136,8 @@ VS 2026 与 VS 2022 共用同一 **`launch.vs.json`** schema（`version: 0.2.1`�
 | 文档 | 关系 |
 | --- | --- |
 | [README.md](../README.md) | 33.0.1 源码下载与构建索引 |
+| [07-Windows编译指南.md](./07-Windows编译指南.md) | **本地自编译** `obs64.exe`：全模块符号优于官方 Release PDB，适合改代码后调试 |
 | [01-架构设计.md](./01-架构设计.md) | 理解断点所在模块与子系统 |
 | [03-软件时序图.md](./03-软件时序图.md) | 对照启动 / 推流时序设断点 |
+
+**自编译 vs 官方 PDB**：发行版 + GitHub PDB 适合快速对照 **33.0.1 tag** 源码读逻辑；若需插件级单步或改代码验证，请按 [07-Windows编译指南.md](./07-Windows编译指南.md) 在 Windows 上 `cmake --preset windows-x64` 自编译。

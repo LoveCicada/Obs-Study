@@ -4,19 +4,17 @@
     "environment": [
       {
         "name": "_NT_SYMBOL_PATH",
-        "value": "SRV*https://msdl.microsoft.com/download/symbols;E:/code/AI/Obs-Study/obs-runtime-33.0.1/install"
+        "value": "SRV*https://msdl.microsoft.com/download/symbols;__REPO_ROOT__/obs-runtime-33.0.1/install"
       }
     ]
   },
   "configurations": [
     {
-      "type": "cppdbg",
+      "type": "default",
+      "debugType": "native",
       "name": "OBS 33.0.1 官方二进制 (GitHub PDB)",
-      "project": "CMakeLists.txt",
-      "request": "launch",
-      "program": "E:/code/AI/Obs-Study/obs-runtime-33.0.1/install/bin/64bit/obs64.exe",
-      "cwd": "E:/code/AI/Obs-Study/obs-runtime-33.0.1/install/bin/64bit",
-      "symbolSearchPath": "E:/code/AI/Obs-Study/obs-runtime-33.0.1/install",
+      "project": "../obs-runtime-33.0.1/install/bin/64bit/obs64.exe",
+      "cwd": "../obs-runtime-33.0.1/install/bin/64bit",
       "stopAtEntry": false
     }
   ]
